@@ -356,7 +356,15 @@ onUnmounted(() => {
               @mouseenter="game.uiHover()"
             >{{ d.label }}</button>
           </div>
+          <!-- VR-capable devices lead with VR; desktop play becomes the preview entry -->
           <div
+            v-if="game.xrSupported.value"
+            class="play-btn"
+            @click="game.uiClick(); game.enterVR()"
+            @mouseenter="game.uiHover()"
+          >进入 VR · ENTER VR</div>
+          <div
+            v-else
             class="play-btn"
             @click="playSelected()"
             @mouseenter="game.uiHover()"
@@ -407,13 +415,19 @@ onUnmounted(() => {
 
       <div class="detail-actions">
         <div
+          v-if="game.xrSupported.value"
           class="vr-btn"
-          :class="{ 'vr-off': !game.xrSupported.value }"
-          @click="game.uiClick(); game.enterVR()"
+          @click="playSelected()"
           @mouseenter="game.uiHover()"
-          :style="{ cursor: game.xrSupported.value ? 'pointer' : 'default' }"
         >
-          {{ game.xrSupported.value ? 'ENTER VR' : 'VR UNAVAILABLE' }}
+          桌面预览 · DESKTOP
+        </div>
+        <div
+          v-else
+          class="vr-btn vr-off"
+          :style="{ cursor: 'default' }"
+        >
+          VR UNAVAILABLE
         </div>
         <div
           class="vr-btn"

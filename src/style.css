@@ -438,27 +438,30 @@ canvas {
 .play-btn {
   margin-top: 8px;
   min-width: 220px;
-  height: 56px;
+  height: 52px;
   align-self: flex-start;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 36px;
+  padding: 0 34px;
   cursor: pointer;
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 700;
   letter-spacing: 5px;
   text-transform: uppercase;
-  color: #fff;
+  color: #dfe9ff;
   border-radius: 8px;
-  background: linear-gradient(90deg, #ff2b4c, #2962ff);
-  box-shadow: 0 0 24px rgba(255,43,76,0.25), 0 0 24px rgba(41,98,255,0.25);
-  transition: filter 0.15s, box-shadow 0.15s, transform 0.1s;
+  /* same visual family as .vr-btn / pills: dark base + accent border, just louder */
+  background: rgba(90, 130, 255, 0.12);
+  border: 1px solid rgba(90, 130, 255, 0.5);
+  box-shadow: inset 0 0 26px rgba(90, 130, 255, 0.1), 0 0 18px rgba(90, 130, 255, 0.16);
+  transition: all 0.2s;
 }
 
 .play-btn:hover {
-  filter: brightness(1.15);
-  box-shadow: 0 0 36px rgba(255,43,76,0.4), 0 0 36px rgba(41,98,255,0.4);
+  background: rgba(90, 130, 255, 0.2);
+  border-color: rgba(130, 168, 255, 0.75);
+  box-shadow: inset 0 0 26px rgba(90, 130, 255, 0.14), 0 0 28px rgba(90, 130, 255, 0.32);
 }
 
 .play-btn:active {

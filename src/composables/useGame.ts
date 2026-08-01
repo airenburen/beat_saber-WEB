@@ -689,6 +689,14 @@ export function useGame() {
     }
   }
 
+  // Two-stage impact: full-strength strike + decaying tail. A single short
+  // pulse reads mushy on Quest motors (moonrider uses 90ms; we add the tail
+  // for the official "thock" feel).
+  function hapticImpact(hand, i1: number, d1: number, i2: number, d2: number) {
+    haptic(hand, i1, d1)
+    setTimeout(() => { haptic(hand, i2, d2) }, d1)
+  }
+
   function goodCut(note, saber, dist) {
     const sp = saber.speed
     const pts = Math.round(70 + Math.min(30, sp * 3.4) + Math.max(0, 1 - dist / CUT_RADIUS) * 15)
@@ -706,7 +714,7 @@ export function useGame() {
     const hitPan = saber.hand === 'L' ? -0.4 : 0.4
     if (note.d.t >= G.lastNoteT - 0.001) synth.sfxLastHit(hitPan)
     else synth.sfxHit(hitPan, 0.85, 0.97 + Math.random() * 0.06)
-    haptic(saber.hand, 0.75, 70)
+    hapticImpact(saber.hand, 1.0, 90, 0.45, 70)
     G.shake = Math.min(0.5, G.shake + 0.12)
     removeNote(note)
     updateHUD()
@@ -722,7 +730,7 @@ export function useGame() {
     G.halves.forEach(h => scene.add(h.m))
     spawnText(note.g.position, '×', '#ff5566')
     synth.sfxBad()
-    haptic(saber.hand, 1.0, 160)
+    hapticImpact(saber.hand, 1.0, 140, 0.7, 120)
     removeNote(note)
     updateHUD()
   }
@@ -743,7 +751,7 @@ export function useGame() {
     addEnergy(0.004)
     spawnBurst(note.g.position, saber.color, 8, 0.09, 3.5)
     synth.sfxHit(saber.hand === 'L' ? -0.4 : 0.4, 0.4, 1.1 + Math.random() * 0.08, true)
-    haptic(saber.hand, 0.4, 45)
+    haptic(saber.hand, 0.6, 55)
     removeNote(note)
     updateHUD()
   }
@@ -771,7 +779,7 @@ export function useGame() {
     addEnergy(-0.15)
     spawnBurst(note.g.position, 0xff3300, 22, 0.16, 7)
     synth.sfxBomb()
-    if (saber) haptic(saber.hand, 1.0, 250)
+    if (saber) hapticImpact(saber.hand, 1.0, 200, 0.85, 160)
     G.shake = 0.8
     removeNote(note)
     updateHUD()
