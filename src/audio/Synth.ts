@@ -520,6 +520,33 @@ export class Synth {
     o.start(t); o.stop(t + 0.08)
   }
 
+  /** Results jingle: rising major arpeggio + shimmer on clear, minor descent on fail. */
+  sfxResults(ok = true) {
+    const t = this.now() + 0.05
+    const seq: [number, number][] = ok
+      ? [[523.25, 0], [659.25, 0.14], [783.99, 0.28], [1046.5, 0.42]]
+      : [[440, 0], [349.23, 0.2], [261.63, 0.42]]
+    seq.forEach(([f, d], i) => {
+      const o = this.ctx.createOscillator()
+      const g = this._g(t + d)
+      o.type = ok ? 'triangle' : 'sawtooth'
+      o.frequency.value = f
+      g.gain.linearRampToValueAtTime(ok ? 0.34 : 0.22, t + d + 0.03)
+      g.gain.exponentialRampToValueAtTime(0.001, t + d + (i === seq.length - 1 ? 0.9 : 0.5))
+      o.connect(g); g.connect(this.sfx)
+      o.start(t + d); o.stop(t + d + 1)
+    })
+    if (ok) {
+      const o2 = this.ctx.createOscillator()
+      const g2 = this._g(t + 0.42)
+      o2.type = 'sine'; o2.frequency.value = 1567.98
+      g2.gain.linearRampToValueAtTime(0.1, t + 0.5)
+      g2.gain.exponentialRampToValueAtTime(0.001, t + 1.4)
+      o2.connect(g2); g2.connect(this.sfx)
+      o2.start(t + 0.42); o2.stop(t + 1.5)
+    }
+  }
+
   sfxCount(final = false) {
     const t = this.now()
     const o = this.ctx.createOscillator()

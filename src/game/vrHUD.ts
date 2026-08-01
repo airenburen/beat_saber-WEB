@@ -162,29 +162,22 @@ export class VRHUD {
   }
 
   _initResults() {
+    // Official-style: the whole view becomes the results screen — a large
+    // frameless canvas with a soft vignette instead of a small boxed popup
     const panel = new THREE.Group()
-    const bgGeo = new THREE.PlaneGeometry(1.2, 0.9)
-    const bgMat = new THREE.MeshBasicMaterial({ color: 0x060812, transparent: true, opacity: 0.88, depthTest: false, depthWrite: false })
-    const bg = new THREE.Mesh(bgGeo, bgMat)
-    panel.add(bg)
-
-    const borderGeo = new THREE.EdgesGeometry(bgGeo)
-    const borderLine = new THREE.LineSegments(borderGeo, new THREE.LineBasicMaterial({ color: 0x58e0ff, transparent: true, opacity: 0.5, depthTest: false, depthWrite: false }))
-    panel.add(borderLine)
-
-    const { canvas, ctx } = makeCanvas(1024, 768)
+    const { canvas, ctx } = makeCanvas(1536, 1024)
     this.resCtx = ctx
     this.resCanvas = canvas
     const tex = new THREE.CanvasTexture(canvas)
     tex.minFilter = THREE.LinearFilter
     tex.magFilter = THREE.LinearFilter
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
-    const sp = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.85), mat)
+    const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.7, 1.8), mat)
     sp.position.z = 0.003
     panel.add(sp)
 
     panel.visible = false
-    panel.position.set(0, 0.05, 0)
+    panel.position.set(0, 0.18, 0)
     this.resultsPanel = panel
     this.resultsSp = sp
     this.resultsTex = tex
@@ -193,28 +186,19 @@ export class VRHUD {
 
   _initFail() {
     const panel = new THREE.Group()
-    const bgGeo = new THREE.PlaneGeometry(1.0, 0.6)
-    const bgMat = new THREE.MeshBasicMaterial({ color: 0x120808, transparent: true, opacity: 0.88, depthTest: false, depthWrite: false })
-    const bg = new THREE.Mesh(bgGeo, bgMat)
-    panel.add(bg)
-
-    const borderGeo = new THREE.EdgesGeometry(bgGeo)
-    const borderLine = new THREE.LineSegments(borderGeo, new THREE.LineBasicMaterial({ color: 0xff5f7a, transparent: true, opacity: 0.6, depthTest: false, depthWrite: false }))
-    panel.add(borderLine)
-
-    const { canvas, ctx } = makeCanvas(1024, 614)
+    const { canvas, ctx } = makeCanvas(1536, 768)
     this.failCtx = ctx
     this.failCanvas = canvas
     const tex = new THREE.CanvasTexture(canvas)
     tex.minFilter = THREE.LinearFilter
     tex.magFilter = THREE.LinearFilter
     const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
-    const sp = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 0.55), mat)
+    const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.5, 1.25), mat)
     sp.position.z = 0.003
     panel.add(sp)
 
     panel.visible = false
-    panel.position.set(0, 0.05, 0)
+    panel.position.set(0, 0.18, 0)
     this.failPanel = panel
     this.failSp = sp
     this.failTex = tex
@@ -314,72 +298,91 @@ export class VRHUD {
   _drawResults(title, rank, score, acc, combo, hits) {
     const ctx = this.resCtx
     const canvas = this.resCanvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const W = canvas.width, H = canvas.height
+    ctx.clearRect(0, 0, W, H)
+
+    // Soft vignette so the stage dims behind the results, official-style
+    const vg = ctx.createRadialGradient(W / 2, H / 2, 120, W / 2, H / 2, W * 0.62)
+    vg.addColorStop(0, 'rgba(3,5,14,0.82)')
+    vg.addColorStop(1, 'rgba(3,5,14,0)')
+    ctx.fillStyle = vg
+    ctx.fillRect(0, 0, W, H)
 
     ctx.textAlign = 'center'
-    ctx.font = 'bold 36px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.textBaseline = 'alphabetic'
+    ctx.font = 'bold 64px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#ffffff'
-    ctx.fillText(title, 512, 70)
+    ctx.shadowColor = 'rgba(127,220,255,0.5)'
+    ctx.shadowBlur = 24
+    ctx.fillText(title, W / 2, 150)
+    ctx.shadowBlur = 0
 
-    ctx.font = 'bold 110px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
-    const grd = ctx.createLinearGradient(512, 120, 512, 240)
+    // Giant rank, left of center
+    ctx.font = 'bold 340px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    const grd = ctx.createLinearGradient(0, 260, 0, 640)
     grd.addColorStop(0, '#ffffff')
     grd.addColorStop(1, '#ffd76e')
     ctx.fillStyle = grd
-    ctx.shadowColor = 'rgba(255,210,110,0.6)'
-    ctx.shadowBlur = 20
-    ctx.fillText(rank, 512, 220)
+    ctx.shadowColor = 'rgba(255,210,110,0.65)'
+    ctx.shadowBlur = 50
+    ctx.fillText(rank, W * 0.31, 620)
     ctx.shadowBlur = 0
 
-    ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
-    ctx.textAlign = 'right'
+    // Stats column, right of center
     const cols = [
-      { label: 'SCORE', val: score, y: 310 },
-      { label: 'ACCURACY', val: acc, y: 350 },
-      { label: 'MAX COMBO', val: combo, y: 390 },
-      { label: 'HITS', val: hits, y: 430 },
+      { label: 'SCORE', val: score },
+      { label: 'ACCURACY', val: acc },
+      { label: 'MAX COMBO', val: String(combo) },
+      { label: 'HITS', val: hits },
     ]
-    cols.forEach(({ label, val, y }) => {
-      ctx.fillStyle = '#7b84ab'
-      ctx.fillText(label, 510, y)
-      ctx.fillStyle = '#ffffff'
-      ctx.font = 'bold 20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    cols.forEach(({ label, val }, i) => {
+      const y = 330 + i * 92
       ctx.textAlign = 'left'
-      ctx.fillText(val, 550, y)
-      ctx.textAlign = 'right'
-      ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+      ctx.font = '30px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+      ctx.fillStyle = '#8a94b8'
+      ctx.fillText(label, W * 0.55, y)
+      ctx.font = 'bold 52px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+      ctx.fillStyle = '#ffffff'
+      ctx.fillText(val, W * 0.55, y + 54)
     })
 
     ctx.textAlign = 'center'
-    ctx.font = '16px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 530)
+    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', W / 2, H - 90)
   }
 
   _drawFail(title, sub, score) {
     const ctx = this.failCtx
     const canvas = this.failCanvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const W = canvas.width, H = canvas.height
+    ctx.clearRect(0, 0, W, H)
+
+    const vg = ctx.createRadialGradient(W / 2, H / 2, 100, W / 2, H / 2, W * 0.58)
+    vg.addColorStop(0, 'rgba(14,3,6,0.82)')
+    vg.addColorStop(1, 'rgba(14,3,6,0)')
+    ctx.fillStyle = vg
+    ctx.fillRect(0, 0, W, H)
 
     ctx.textAlign = 'center'
-    ctx.font = 'bold 48px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.font = 'bold 120px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#ff4466'
-    ctx.shadowColor = 'rgba(255,44,66,0.7)'
-    ctx.shadowBlur = 16
-    ctx.fillText(title, 512, 100)
+    ctx.shadowColor = 'rgba(255,44,66,0.75)'
+    ctx.shadowBlur = 40
+    ctx.fillText(title, W / 2, 250)
     ctx.shadowBlur = 0
 
-    ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
-    ctx.fillStyle = '#7b84ab'
-    ctx.fillText(sub, 512, 150)
+    ctx.font = '40px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillStyle = '#a8b0cf'
+    ctx.fillText(sub, W / 2, 360)
 
-    ctx.font = 'bold 32px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.font = 'bold 64px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#ffffff'
-    ctx.fillText('SCORE: ' + score, 512, 230)
+    ctx.fillText('SCORE ' + score, W / 2, 490)
 
-    ctx.font = '16px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 450)
+    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', W / 2, H - 70)
   }
 
   _drawPause() {
@@ -400,6 +403,17 @@ export class VRHUD {
   setSongLabel(label) {
     this._drawSongLabel(label)
     this.songSpr.material.map.needsUpdate = true
+  }
+
+  /** Force-hide overlay panels (the vrmenu branch never calls update()). */
+  hidePanels() {
+    this.resultsPanel.visible = false
+    this.failPanel.visible = false
+    this.pausePanel.visible = false
+    this.countSpr.visible = false
+    this._lastResults = null
+    this._lastFail = null
+    this._lastPaused = false
   }
 
   update(state, score, combo, acc, mult, energy, progress, countdownText, songLabel, resultsData, failData, paused) {

@@ -1059,6 +1059,9 @@ export function useGame() {
       // Guard against click-through from the panel button that opened the menu
       _vrTriggerDown = { left: true, right: true }
       _vrMenuCooldown = 0.6
+      // The vrmenu branch never calls vrHUD.update, so hide its panels
+      // explicitly or the results screen lingers over the song list
+      if (vrHUD) vrHUD.hidePanels()
     } else {
       state.value = 'menu'
     }
@@ -1068,12 +1071,13 @@ export function useGame() {
     state.value = 'failed'
     player.stop()
     failSub.value = `完成度 ${Math.round(G.t / G.song.duration * 100)}% · 得分 ${Math.round(G.score).toLocaleString()}`
-    synth.sfxBomb()
+    synth.sfxResults(false)
   }
 
   function finishSong() {
     state.value = 'results'
     if (player) player.stop()
+    synth.sfxResults(true)
     const accMax = G.cumMax[G.totalNotes] || 1
     const accVal = G.score / accMax
     const rk = accVal >= 0.95 ? 'SS' : accVal >= 0.9 ? 'S' : accVal >= 0.8 ? 'A' : accVal >= 0.65 ? 'B' : accVal >= 0.5 ? 'C' : 'D'
@@ -3155,7 +3159,8 @@ export function useGame() {
     _vrPanelCooldown = 0.6
     _vrPanelTriggerDown = { left: true, right: true } // require trigger release before first click
     vrPanelGroup = new THREE.Group()
-    vrPanelGroup.position.set(0, 1.1, -2.1)
+    // Results/fail use the big fullscreen display — buttons sit lower there
+    vrPanelGroup.position.set(0, st === 'paused' ? 1.1 : 0.6, -2.1)
     scene.add(vrPanelGroup)
     const defs = st === 'paused' ? [
       { cn: '继续', en: 'RESUME', accent: '#39e07f', act: () => resumeSong() },
