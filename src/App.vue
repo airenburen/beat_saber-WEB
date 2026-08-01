@@ -38,7 +38,6 @@ const bsQuery = ref('')
 const bsResults = ref([])
 const bsLoading = ref(false)
 const bsError = ref('')
-const bsDownloading = ref('')
 const bsShowSearch = ref(false)
 const bsSearchLabel = ref('')
 
@@ -60,14 +59,11 @@ async function doSearch(q) {
   bsLoading.value = false
 }
 
-async function doDownload(result) {
-  bsDownloading.value = result.id; bsError.value = ''
-  try {
-    const { idx } = await game.downloadSong(result)
-    bsDownloading.value = ''
-    bsResults.value = []; bsShowSearch.value = false; bsQuery.value = ''
-    if (idx != null && idx >= 0) { selectedIdx.value = idx; game.previewSong(idx) }
-  } catch (e) { bsError.value = 'Download failed: ' + e.message; bsDownloading.value = '' }
+// Queue the download and stay in the overlay so more songs can be picked;
+// the shared queue (desktop + VR) drives the 「下载中 歌名 (n/total)」 bar
+function doDownload(result) {
+  bsError.value = ''
+  game.queueDownload(result)
 }
 
 // Artists → search and show their songs
@@ -509,9 +505,9 @@ onUnmounted(() => {
         </button>
       </div>
       <div v-if="topNote" class="bs-progress-label bs-top-note">{{ topNote }}</div>
-      <div v-if="game.downloadProgress.value.pct > 0 && game.downloadProgress.value.stage !== 'done'" class="bs-progress">
-        <div class="bs-progress-label">{{ game.downloadProgress.value.stage === 'resolving' ? 'Resolving...' : game.downloadProgress.value.stage === 'parsing' ? 'Parsing beatmap...' : 'Downloading... ' + game.downloadProgress.value.pct + '%' }}</div>
-        <div class="bs-progress-bar"><div class="bs-progress-fill" :style="{ width: game.downloadProgress.value.pct + '%' }"></div></div>
+      <div v-if="game.dlInfo.value.active" class="bs-progress">
+        <div class="bs-progress-label">下载中 {{ game.dlInfo.value.name }}({{ Math.min(game.dlInfo.value.done + 1, game.dlInfo.value.total) }}/{{ game.dlInfo.value.total }}) · {{ game.downloadProgress.value.stage === 'parsing' ? '解析中' : (game.downloadProgress.value.pct || 0) + '%' }}</div>
+        <div class="bs-progress-bar"><div class="bs-progress-fill" :style="{ width: (game.downloadProgress.value.pct || 0) + '%' }"></div></div>
       </div>
       <div v-if="bsError" class="bs-error">{{ bsError }}</div>
       <div class="bs-body">
@@ -520,9 +516,9 @@ onUnmounted(() => {
           <div
             v-for="r in bsResults" :key="r.id"
             class="bs-result"
-            :class="{ busy: bsDownloading === r.id }"
+            :class="{ busy: game.dlIds.value.includes(r.id) }"
             @mouseenter="game.uiHover()"
-            @click="bsDownloading ? null : (game.uiClick(), doDownload(r))"
+            @click="game.uiClick(); doDownload(r)"
           >
             <div class="bsr-cover" :style="r.coverUrl ? { backgroundImage: 'url(' + r.coverUrl + ')' } : {}"></div>
             <div class="bsr-info">
@@ -533,7 +529,7 @@ onUnmounted(() => {
               <div class="bsr-bpm">{{ Math.round(r.bpm) }} <span>BPM</span></div>
               <div class="bsr-up">↑{{ r.upvotes }}</div>
             </div>
-            <div class="bsr-dl">{{ bsDownloading === r.id ? '下载中…' : '下载 DOWNLOAD' }}</div>
+            <div class="bsr-dl">{{ game.dlIds.value.includes(r.id) ? (game.dlInfo.value.name === r.songName ? '下载中…' : '排队中') : ((game.songListVersion.value, game.SONGS.some(s => s.id === 'bs_' + r.id)) ? '✓ 已下载' : '下载 DOWNLOAD') }}</div>
           </div>
           <button
             v-if="bsBrowseActive"

@@ -529,21 +529,30 @@ export function useGame() {
   const WALL_BUDGET: Record<string, number> = { low: 3500, medium: 12000, high: Infinity }
   // Quest fill-rate cannot survive six-figure transparent wall counts — tighter caps in VR
   const WALL_BUDGET_XR: Record<string, number> = { low: 2000, medium: 6000, high: 20000 }
-  // User opt-in: full wall data in VR (原画, may stutter) / VR frame limiter (0 = uncapped)
+  // User opt-in: full wall data in VR (原画, may stutter)
   let vrFullWalls = localStorage.getItem('bs_vr_fullwalls') === '1'
-  let vrFpsLimit = parseInt(localStorage.getItem('bs_vr_fps') || '0') || 0
-  let _lastXRRender = 0
+  // Frame-rate tier resolved against the DEVICE's supportedFrameRates only —
+  // forcing unsupported rates (30/60 on Quest 3) via tick-skipping caused
+  // severe flicker, so tiers map to native rates and nothing else.
+  let vrFpsTier = localStorage.getItem('bs_vr_fps_tier') || ''
+
+  function vrRateFor(tier: string): number | null {
+    const s: any = XR.session
+    const rates: number[] = [...(s?.supportedFrameRates || [])].sort((a, b) => a - b)
+    if (!rates.length) return null
+    const n = rates.length
+    if (tier === 'low') return rates[0]
+    if (tier === 'mid') return rates[Math.floor((n - 1) * 0.4)]
+    if (tier === 'high') return rates[Math.floor((n - 1) * 0.75)]
+    if (tier === 'max') return rates[n - 1]
+    return null
+  }
 
   function applyVRFrameRate() {
     const s: any = XR.session
-    if (!s || !s.supportedFrameRates || !s.updateTargetFrameRate) return
-    const want = vrFpsLimit || Infinity
-    let best: number | null = null
-    for (const r of s.supportedFrameRates) {
-      if (r <= want + 1) { if (best == null || r > best) best = r }
-    }
-    if (best == null) best = Math.min(...s.supportedFrameRates)
-    s.updateTargetFrameRate(best).catch(() => {})
+    if (!s || !s.updateTargetFrameRate) return
+    const rate = vrRateFor(vrFpsTier)
+    if (rate != null) s.updateTargetFrameRate(rate).catch(() => {})
   }
 
   function capDecoWalls(walls: any[], q: string): any[] {
@@ -1308,6 +1317,48 @@ export function useGame() {
     return await searchBeatSaver(query)
   }
 
+  // ===== Shared download queue (desktop + VR): click as many as you like;
+  // downloads run one at a time so the progress bar reads
+  // 「下载中 <歌名> (n/total)」 with a meaningful percentage =====
+  const dlInfo = ref({ active: false, name: '', done: 0, total: 0 })
+  const dlIds = ref<string[]>([])
+  const _dlPending: any[] = []
+  let _dlRunning = false
+
+  function queueDownload(mapData: any) {
+    const id = String(mapData?.id || '')
+    if (!id || dlIds.value.includes(id)) return
+    if (SONGS.find(s => s.id === 'bs_' + id)) return
+    dlIds.value = [...dlIds.value, id]
+    _dlPending.push(mapData)
+    dlInfo.value = { ...dlInfo.value, active: true, total: dlInfo.value.total + 1 }
+    _vrListDirty = true
+    if (!_dlRunning) _runDlQueue()
+  }
+
+  async function _runDlQueue() {
+    _dlRunning = true
+    while (_dlPending.length) {
+      const md = _dlPending.shift()
+      dlInfo.value = { ...dlInfo.value, name: md.songName || md.name || md.id }
+      try {
+        await downloadSong(md)
+      } catch (e: any) {
+        console.error('queue download failed:', md.id, e?.message)
+      }
+      dlIds.value = dlIds.value.filter(i => i !== md.id)
+      dlInfo.value = { ...dlInfo.value, done: dlInfo.value.done + 1 }
+      _vrListDirty = true
+    }
+    _dlRunning = false
+    setTimeout(() => {
+      if (!_dlRunning && !_dlPending.length) {
+        dlInfo.value = { active: false, name: '', done: 0, total: 0 }
+        _vrListDirty = true
+      }
+    }, 1600)
+  }
+
   async function downloadSong(mapData) {
     const existingIdx = SONGS.findIndex(s => s.id === 'bs_' + mapData.id)
     if (existingIdx >= 0) {
@@ -1353,12 +1404,6 @@ export function useGame() {
 
   function tick(timestamp, xrFrame) {
     try {
-    // VR frame limiter: skip whole ticks; the compositor reprojects the last
-    // frame, so 30/60 work even when the device only offers 72/90Hz
-    if (XR.active && vrFpsLimit > 0 && timestamp) {
-      if (timestamp - _lastXRRender < 1000 / vrFpsLimit - 3) return
-      _lastXRRender = timestamp
-    }
     const dt = Math.min(clock.getDelta(), 0.05)
     const time = performance.now() * 0.001
 
@@ -1933,7 +1978,9 @@ export function useGame() {
       new THREE.PlaneGeometry(1.2, 0.6),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
     )
-    card.userData = { act }
+    // baseScale must exist: the menu loop does setScalar(baseScale) and NaN
+    // scale made cards invisible until first laser hover
+    card.userData = { act, baseScale: 1 }
     return card
   }
 
@@ -1956,6 +2003,7 @@ export function useGame() {
       c.material.dispose()
     }
     vrMenuItems = []
+    _vrSpinner = null
     _destroyVRPanels()
   }
 
@@ -2142,8 +2190,12 @@ export function useGame() {
         ? `${it.songAuthor || it.levelAuthor || ''} · ${Math.round(it.bpm || 0)} BPM`
         : `${it.en || ''} · ${it.bpm} BPM`
       g.fillText(_fitText(g, sub, W - 260), 112, y + 66)
-      // Right chip: difficulty / upvotes
-      const chip = browse ? `▲${it.upvotes ?? 0}` : String(it.diff || '')
+      // Right chip: difficulty / upvotes / download state
+      let chip = browse ? `▲${it.upvotes ?? 0}` : String(it.diff || '')
+      if (browse) {
+        if (dlIds.value.includes(String(it.id))) chip = dlInfo.value.name === (it.songName || it.name) ? '下载中…' : '排队中'
+        else if (SONGS.find(s => s.id === 'bs_' + it.id)) chip = '✓ 已下载'
+      }
       g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
       const cw = g.measureText(chip).width + 26
       _rr(g, W - cw - 24, y + 32, cw, 34, 17)
@@ -2186,8 +2238,34 @@ export function useGame() {
     g.textAlign = 'center'
     g.fillText('BEATSAVER · 社区谱面搜索下载', W / 2, fy + (LIST_FOOT - 20) / 2)
     regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'bs', act: () => vrBrowserCats() })
+    _drawVRDlStrip(g, W, H)
     tex.needsUpdate = true
     _vrListDirty = false
+  }
+
+  // Download-queue progress strip: 「下载中 <歌名> (n/total)」 + percent bar
+  function _drawVRDlStrip(g: CanvasRenderingContext2D, W: number, H: number) {
+    const info = dlInfo.value
+    if (!info.active) return
+    const y = H - LIST_FOOT - 40
+    _rr(g, 16, y, W - 32, 34, 10)
+    g.fillStyle = 'rgba(6,10,24,0.92)'
+    g.fill()
+    g.strokeStyle = 'rgba(127,220,255,0.4)'
+    g.lineWidth = 1.5
+    _rr(g, 16, y, W - 32, 34, 10)
+    g.stroke()
+    g.textAlign = 'left'
+    g.textBaseline = 'middle'
+    g.fillStyle = '#a8e6ff'
+    g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
+    const n = Math.min(info.done + 1, info.total)
+    g.fillText(_fitText(g, `下载中 ${info.name}(${n}/${info.total})`, W - 80), 30, y + 14)
+    const pct = Math.max(0, Math.min(100, downloadProgress.value.pct || 0))
+    g.fillStyle = 'rgba(127,220,255,0.25)'
+    g.fillRect(30, y + 26, W - 92, 4)
+    g.fillStyle = '#7fdcff'
+    g.fillRect(30, y + 26, (W - 92) * pct / 100, 4)
   }
 
   // Same genre tags as the desktop BS overlay
@@ -2305,6 +2383,7 @@ export function useGame() {
     g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
     g.fillText('← 返回歌单', W / 2, fy + (LIST_FOOT - 20) / 2)
     regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'back', act: () => fillVRMenuSongs() })
+    _drawVRDlStrip(g, W, H)
     tex.needsUpdate = true
     _vrListDirty = false
   }
@@ -2386,20 +2465,24 @@ export function useGame() {
     g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
     g.fillText('帧率', 28, 284)
     let fx = 90
-    for (const [fv, fl] of [[30, '30'], [60, '60'], [90, '90'], [0, '无限']] as [number, string][]) {
-      const cur = vrFpsLimit === fv
-      const hovered = _vrHoverKey === 'detail:fps' + fv
-      const pw = fv === 0 ? 78 : 62
+    // Tiers resolve to the DEVICE's native rates (unsupported rates flicker)
+    const tiers: [string, string][] = [['low', '低'], ['mid', '中'], ['high', '高'], ['max', '原画']]
+    for (const [tk, tl] of tiers) {
+      const rate = vrRateFor(tk)
+      const label = rate != null ? `${tl}${rate}` : tl
+      const cur = vrFpsTier === tk
+      const hovered = _vrHoverKey === 'detail:fps' + tk
+      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
+      const pw = Math.ceil(g.measureText(label).width) + 30
       _rr(g, fx, 262, pw, 44, 22)
       g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
       g.fill()
       g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
-      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
       g.textAlign = 'center'
-      g.fillText(fl, fx + pw / 2, 285)
-      regions.push({ x: fx, y: 262, w: pw, h: 44, key: 'fps' + fv, act: () => {
-        vrFpsLimit = fv
-        localStorage.setItem('bs_vr_fps', String(fv))
+      g.fillText(label, fx + pw / 2, 285)
+      regions.push({ x: fx, y: 262, w: pw, h: 44, key: 'fps' + tk, act: () => {
+        vrFpsTier = tk
+        localStorage.setItem('bs_vr_fps_tier', tk)
         applyVRFrameRate()
         _vrDetailDirty = true
       } })
@@ -2559,7 +2642,7 @@ export function useGame() {
       new THREE.PlaneGeometry(w, h),
       new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
     )
-    card.userData = { act, hw: w / 2, hh: h / 2 }
+    card.userData = { act, hw: w / 2, hh: h / 2, baseScale: 1 }
     return card
   }
 
@@ -2595,7 +2678,7 @@ export function useGame() {
       new THREE.MeshBasicMaterial({ map: kbTex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
     )
     display.position.set(0, 0.82, 0)
-    display.userData = { act: () => {}, hw: 1.7, hh: 0.21, kbCanvas, kbCtx, kbTex }
+    display.userData = { act: () => {}, hw: 1.7, hh: 0.21, kbCanvas, kbCtx, kbTex, baseScale: 1 }
     vrMenuOrigin.add(display)
     vrMenuItems.push(display)
     _vrKbDisplay = display
@@ -2637,8 +2720,50 @@ export function useGame() {
     _placeVRCards(cards)
   }
 
+  // Loading state: spinning ring + label (replaces the ugly static card that
+  // needed a laser hover to even show up)
+  let _vrSpinner: any = null
+  function _vrShowSpinner(label: string) {
+    clearVRMenuCards()
+    const lc = document.createElement('canvas')
+    lc.width = 512; lc.height = 128
+    const lg = lc.getContext('2d')!
+    lg.textAlign = 'center'
+    lg.textBaseline = 'middle'
+    lg.fillStyle = '#cfe8ff'
+    lg.font = 'bold 44px "Rajdhani", "PingFang SC", sans-serif'
+    lg.fillText(label, 256, 64)
+    const lbl = new THREE.Mesh(
+      new THREE.PlaneGeometry(1.6, 0.4),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(lc), transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    lbl.position.set(0, -0.5, 0)
+    lbl.userData = { act: () => {}, baseScale: 1 }
+    const rc = document.createElement('canvas')
+    rc.width = 256; rc.height = 256
+    const rg = rc.getContext('2d')!
+    rg.strokeStyle = '#7fdcff'
+    rg.lineWidth = 20
+    rg.lineCap = 'round'
+    rg.shadowColor = 'rgba(127,220,255,0.8)'
+    rg.shadowBlur = 14
+    rg.beginPath()
+    rg.arc(128, 128, 92, 0, Math.PI * 1.5)
+    rg.stroke()
+    const ring = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.55, 0.55),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(rc), transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+    )
+    ring.position.set(0, 0.15, 0)
+    ring.userData = { act: () => {}, baseScale: 1 }
+    vrMenuOrigin.add(lbl)
+    vrMenuOrigin.add(ring)
+    vrMenuItems.push(lbl, ring)
+    _vrSpinner = ring
+  }
+
   async function vrBrowserFetch(label: string, fetcher: () => Promise<any[]>) {
-    _vrBrowserMessage('加载中…')
+    _vrShowSpinner('加载中 LOADING')
     try {
       const list = await fetcher()
       if (state.value !== 'vrmenu') return
@@ -2649,14 +2774,10 @@ export function useGame() {
     }
   }
 
-  async function vrBrowserDownload(r: any) {
-    _vrBrowserMessage(`下载中 ${String(r.songName || r.name).slice(0, 12)}…`)
-    try {
-      await downloadSong(r)
-      if (state.value === 'vrmenu') fillVRMenuSongs()
-    } catch (e) {
-      if (state.value === 'vrmenu') _vrBrowserMessage('下载失败', () => vrBrowserCats())
-    }
+  function vrBrowserDownload(r: any) {
+    // Queue it and STAY on the browse list so more songs can be picked;
+    // the row chip + the list-panel progress strip show the queue state
+    queueDownload(r)
   }
 
   function buildVRMenu() {
@@ -2793,6 +2914,8 @@ export function useGame() {
       }
     }
 
+    // Keep the download strip's percent bar live (throttled by the same gate)
+    if (dlInfo.value.active) _vrListDirty = true
     // Canvas repaint + GPU texture upload is the cost here — cap at ~22fps
     // (scrolling repaints every frame otherwise)
     if (vrListPanel && _vrListDirty && performance.now() - _vrListDrawAt > 45) {
@@ -2833,12 +2956,14 @@ export function useGame() {
       })
     }
 
+    if (_vrSpinner) _vrSpinner.rotation.z -= dt * 5
+
     // Desktop-style panel mode: UV-precise laser hits + thumbstick scrolling
     if (vrListPanel) { _updateVRPanelsUI(dt); return }
 
     let hovered = -1
     for (const card of vrMenuItems) {
-      card.scale.setScalar(card.userData.baseScale)
+      card.scale.setScalar(card.userData.baseScale ?? 1)
     }
 
     for (const hand of ['left', 'right']) {
@@ -3231,6 +3356,7 @@ export function useGame() {
     handMode, handStatus, toggleHandMode,
     getHandVideo: () => handTracker?.video || null,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
+    dlInfo, dlIds, queueDownload,
     uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
     // Debug: render the VR panels in desktop mode for screenshot verification
     _debugVRPanels: (hover?: string, mode?: string) => {
