@@ -25,7 +25,8 @@ import {
 export function useGame() {
   // ========== State ==========
   const state = ref('menu')
-  const auto = ref(false)
+  // Desktop demo autoplay is the default; mouse/keyboard saber control is removed
+  const auto = ref(localStorage.getItem('bs_auto') !== '0')
   // Webcam hand-tracking mode (desktop): index fingertips drive the sabers
   const handMode = ref(false)
   const handStatus = ref('')
@@ -1109,14 +1110,9 @@ export function useGame() {
       if (state.value === 'playing') pauseSong()
       else if (state.value === 'paused') resumeSong()
     }
-    if (e.code === 'KeyA' || e.code === 'ArrowLeft') G.leanTarget = -0.85
-    if (e.code === 'KeyD' || e.code === 'ArrowRight') G.leanTarget = 0.85
   }
 
-  function onKeyUp(e) {
-    if ((e.code === 'KeyA' || e.code === 'ArrowLeft') && G.leanTarget < 0) G.leanTarget = 0
-    if ((e.code === 'KeyD' || e.code === 'ArrowRight') && G.leanTarget > 0) G.leanTarget = 0
-  }
+  function onKeyUp(e) { /* keyboard saber/dodge control removed */ }
 
   async function toggleHandMode() {
     if (handMode.value) {
@@ -1141,6 +1137,7 @@ export function useGame() {
 
   function toggleAuto() {
     auto.value = !auto.value
+    localStorage.setItem('bs_auto', auto.value ? '1' : '0')
     if (synth) synth.sfxClick()
   }
 
@@ -1693,16 +1690,16 @@ export function useGame() {
           }
         }
         if (!byHand) {
-          const mp = mouseToWorld()
-          saberR.update(dt, mp.x, mp.y, 28, G.camOff)
-          saberL.update(dt, -mp.x, mp.y, 28, G.camOff)
+          // Mouse control is removed: without hands, sabers hold position
+          saberL.update(dt, saberL.pos.x, saberL.pos.y, 28, G.camOff)
+          saberR.update(dt, saberR.pos.x, saberR.pos.y, 28, G.camOff)
         }
       }
 
       if (t > -0.5) checkCuts()
 
       // Camera lean
-      if (!XR.active && auto.value) {
+      if (!XR.active) {
         G.leanTarget = 0
         for (const o of G.walls) {
           const frontZ = G.hitZ + (t - o.w.t) * meta.value.speed

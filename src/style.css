@@ -179,6 +179,35 @@ canvas {
   border-color: rgba(127, 220, 255, 0.6);
 }
 
+.lang-menu {
+  position: absolute;
+  top: 48px;
+  left: 0;
+  min-width: 132px;
+  background: rgba(8, 11, 24, 0.96);
+  border: 1px solid rgba(127, 220, 255, 0.3);
+  border-radius: 10px;
+  padding: 6px;
+  z-index: 60;
+}
+
+.lang-item {
+  padding: 7px 12px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: #c8d4f8;
+  cursor: pointer;
+}
+
+.lang-item:hover {
+  background: rgba(90, 130, 255, 0.16);
+}
+
+.lang-item.on {
+  color: #7fdcff;
+  font-weight: 700;
+}
+
 #menu::before {
   content: "";
   position: absolute;

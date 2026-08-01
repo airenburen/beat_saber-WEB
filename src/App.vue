@@ -2,7 +2,9 @@
 import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
 import { browseBeatSaver, browseBeatLeader } from './audio/beatsaver'
-import { t, lang, setLang } from './i18n'
+import { t, lang, setLang, LANGS } from './i18n'
+
+const showLangMenu = ref(false)
 
 const game = useGame()
 provide('game', game)
@@ -291,9 +293,17 @@ onUnmounted(() => {
     <!-- Top-right external links -->
     <div id="ext-links">
       <a
-        class="lang" :title="lang === 'zh' ? 'Switch to English' : '切换中文'"
-        @mouseenter="game.uiHover()" @click="game.uiClick(); setLang(lang === 'zh' ? 'en' : 'zh')"
-      ><span class="lang-txt">{{ lang === 'zh' ? 'EN' : '中' }}</span></a>
+        class="lang" title="Language"
+        @mouseenter="game.uiHover()" @click="game.uiClick(); showLangMenu = !showLangMenu"
+      ><span class="lang-txt">{{ (LANGS.find(l => l[0] === lang) || ['', 'EN'])[1].slice(0, 2) }}</span></a>
+      <div v-if="showLangMenu" class="lang-menu">
+        <div
+          v-for="[code, name] in LANGS" :key="code"
+          class="lang-item" :class="{ on: lang === code }"
+          @mouseenter="game.uiHover()"
+          @click="game.uiClick(); setLang(code); showLangMenu = false"
+        >{{ name }}</div>
+      </div>
       <a
         class="bili" href="https://www.bilibili.com/video/BV1LCK66oEYk/" target="_blank" rel="noopener"
         title="演示视频 · bilibili" @mouseenter="game.uiHover()" @click="game.uiClick()"
@@ -465,7 +475,7 @@ onUnmounted(() => {
       <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ uploadStatus }}</div>
 
       <div id="controls-hint">
-        <b>DESKTOP</b> — Mouse swing sabers · <b>A / D</b> dodge walls · <b>ESC</b> pause<br />
+        <b>DESKTOP</b> — DEMO autoplay / hand tracking · <b>ESC</b> pause<br />
         <b>VR</b> — HTTPS required · Left red · Right blue · Trigger select · Grip pause
       </div>
     </section>
