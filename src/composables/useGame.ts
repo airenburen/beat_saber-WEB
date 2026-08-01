@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js'
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js'
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js'
@@ -16,6 +16,7 @@ import { VRHUD } from '../game/vrHUD'
 import { createNoteMesh, createWallMesh, createHalves, createBurst, releaseBurst, createFloatingText, createArcMesh, setGeometries } from '../game/Note'
 import { createEnv } from '../env/index'
 import { log, dumpLog, startLog } from './vrlog'
+import { t, lang } from '../i18n'
 import {
   LANE_X, ROW_Y, SABER_Z, SPAWN_DIST, MISS_Z,
   CUT_WINDOW, CUT_RADIUS, MIN_SPEED, DIR_VEC, NEED, MULT, RING_C,
@@ -57,6 +58,13 @@ export function useGame() {
   // Local song loading toast: { active, label, pct (-1 = indeterminate) }
   const localLoad = ref({ active: false, label: '', pct: -1 })
   // Graphics quality: high = full bloom, medium = half-res bloom, low = no post-processing
+  // Language switch re-renders every surface (DOM lists + VR canvas panels)
+  watch(lang, () => {
+    songListVersion.value++
+    _vrListDirty = true
+    _vrDetailDirty = true
+  })
+
   const quality = ref(localStorage.getItem('bs_quality') || 'high')
 
   // ========== Three.js Core ==========
@@ -168,7 +176,7 @@ export function useGame() {
       SONGS.push(s)
       songListVersion.value++
     }
-    localLoad.value = { active: true, label: '读取本地歌曲…', pct: -1 }
+    localLoad.value = { active: true, label: t('读取本地歌曲…'), pct: -1 }
     loadAllMaps((song, i, total) => {
       addSong(song)
       localLoad.value = { active: true, label: `读取已下载歌曲 ${i}/${total}…`, pct: total ? Math.round(i / total * 100) : -1 }
@@ -178,7 +186,7 @@ export function useGame() {
       return loadBuiltinMap('4f454', '/builtin/4f454.zip', (stage, pct) => {
         localLoad.value = {
           active: true,
-          label: stage === 'parsing' ? '解析内置歌曲 Reply…' : '下载内置歌曲 Reply…',
+          label: stage === 'parsing' ? t('解析内置歌曲 Reply…') : t('下载内置歌曲 Reply…'),
           pct: stage === 'parsing' ? -1 : pct,
         }
       }).then(song => {
@@ -1070,7 +1078,7 @@ export function useGame() {
   function failSong() {
     state.value = 'failed'
     player.stop()
-    failSub.value = `完成度 ${Math.round(G.t / G.song.duration * 100)}% · 得分 ${Math.round(G.score).toLocaleString()}`
+    failSub.value = `${t('完成度')} ${Math.round(G.t / G.song.duration * 100)}% · ${t('得分')} ${Math.round(G.score).toLocaleString()}`
     synth.sfxResults(false)
   }
 
@@ -1082,7 +1090,7 @@ export function useGame() {
     const accVal = G.score / accMax
     const rk = accVal >= 0.95 ? 'SS' : accVal >= 0.9 ? 'S' : accVal >= 0.8 ? 'A' : accVal >= 0.65 ? 'B' : accVal >= 0.5 ? 'C' : 'D'
     const fc = G.hits === G.totalNotes && G.totalNotes > 0
-    resultsTitle.value = (auto.value ? '纯享演示 · ' : '') + (fc ? '全连击！FULL COMBO' : '通关！')
+    resultsTitle.value = (auto.value ? t('纯享演示 · ') : '') + (fc ? t('全连击！FULL COMBO') : t('通关！'))
     rank.value = rk
     rScore.value = Math.round(G.score).toLocaleString()
     rAcc.value = (accVal * 100).toFixed(1) + '%'
@@ -1118,15 +1126,15 @@ export function useGame() {
       handTracker = null
       return
     }
-    handStatus.value = '摄像头启动中…'
+    handStatus.value = t('摄像头启动中…')
     try {
       const { HandTracker } = await import('../game/handTrack')
       handTracker = new HandTracker()
       await handTracker.start()
       handMode.value = true
-      handStatus.value = '已就绪 · 举起双手食指'
+      handStatus.value = t('已就绪 · 举起双手食指')
     } catch (e: any) {
-      handStatus.value = handTracker?.error || '摄像头启动失败'
+      handStatus.value = t(handTracker?.error || '摄像头启动失败')
       handTracker = null
     }
   }
@@ -2128,7 +2136,7 @@ export function useGame() {
     g.textAlign = 'left'
     g.fillStyle = '#ffffff'
     g.font = 'bold 30px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText(browse ? _vrBrowseLabel : '歌曲列表 · SELECT SONG', 24, LIST_HEAD / 2)
+    g.fillText(browse ? _vrBrowseLabel : t('歌曲列表 · SELECT SONG'), 24, LIST_HEAD / 2)
     if (browse) {
       const bw = 130
       _rr(g, W - bw - 20, 18, bw, LIST_HEAD - 36, 12)
@@ -2137,13 +2145,13 @@ export function useGame() {
       g.fillStyle = '#ff9ed9'
       g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
       g.textAlign = 'center'
-      g.fillText('← 返回', W - bw / 2 - 20, LIST_HEAD / 2)
+      g.fillText(t('← 返回'), W - bw / 2 - 20, LIST_HEAD / 2)
       regions.push({ x: W - bw - 20, y: 18, w: bw, h: LIST_HEAD - 36, key: 'back', act: () => vrBrowserCats() })
     } else {
       g.fillStyle = '#7d88ad'
       g.font = '22px "Rajdhani", "PingFang SC", sans-serif'
       g.textAlign = 'right'
-      g.fillText(`${SONGS.length} 首`, W - 24, LIST_HEAD / 2)
+      g.fillText(`${SONGS.length} ${t('首')}`, W - 24, LIST_HEAD / 2)
     }
     g.strokeStyle = 'rgba(127,220,255,0.18)'
     g.beginPath(); g.moveTo(16, LIST_HEAD); g.lineTo(W - 16, LIST_HEAD); g.stroke()
@@ -2202,8 +2210,8 @@ export function useGame() {
       // Right chip: difficulty / upvotes / download state
       let chip = browse ? `▲${it.upvotes ?? 0}` : String(it.diff || '')
       if (browse) {
-        if (dlIds.value.includes(String(it.id))) chip = dlInfo.value.name === (it.songName || it.name) ? '下载中…' : '排队中'
-        else if (SONGS.find(s => s.id === 'bs_' + it.id)) chip = '✓ 已下载'
+        if (dlIds.value.includes(String(it.id))) chip = dlInfo.value.name === (it.songName || it.name) ? t('下载中…') : t('排队中')
+        else if (SONGS.find(s => s.id === 'bs_' + it.id)) chip = t('✓ 已下载')
       }
       g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
       const cw = g.measureText(chip).width + 26
@@ -2245,7 +2253,7 @@ export function useGame() {
     g.fillStyle = '#ffd76e'
     g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
     g.textAlign = 'center'
-    g.fillText('BEATSAVER · 社区谱面搜索下载', W / 2, fy + (LIST_FOOT - 20) / 2)
+    g.fillText(t('BEATSAVER · 社区谱面搜索下载'), W / 2, fy + (LIST_FOOT - 20) / 2)
     regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'bs', act: () => vrBrowserCats() })
     _drawVRDlStrip(g, W, H)
     tex.needsUpdate = true
@@ -2269,7 +2277,7 @@ export function useGame() {
     g.fillStyle = '#a8e6ff'
     g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
     const n = Math.min(info.done + 1, info.total)
-    g.fillText(_fitText(g, `下载中 ${info.name}(${n}/${info.total})`, W - 80), 30, y + 14)
+    g.fillText(_fitText(g, `${t('下载中')} ${info.name}(${n}/${info.total})`, W - 80), 30, y + 14)
     const pct = Math.max(0, Math.min(100, downloadProgress.value.pct || 0))
     g.fillStyle = 'rgba(127,220,255,0.25)'
     g.fillRect(30, y + 26, W - 92, 4)
@@ -2304,7 +2312,7 @@ export function useGame() {
     g.textAlign = 'left'
     g.fillStyle = '#ffd76e'
     g.font = 'bold 30px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText('BEATSAVER · 社区谱面', 24, LIST_HEAD / 2)
+    g.fillText(t('BEATSAVER · 社区谱面'), 24, LIST_HEAD / 2)
     g.strokeStyle = 'rgba(255,215,110,0.2)'
     g.beginPath(); g.moveTo(16, LIST_HEAD); g.lineTo(W - 16, LIST_HEAD); g.stroke()
 
@@ -2325,38 +2333,38 @@ export function useGame() {
       g.fillText(label, 24, y)
     }
 
-    section('排序 SORT', 122)
+    section(t('排序 SORT'), 122)
     g.font = 'bold 23px "Rajdhani", "PingFang SC", sans-serif'
-    chip(24, 142, 140, 52, '热门 TOP', 'sortR', _vrBrowseSort === 'Rating', () => {
+    chip(24, 142, 140, 52, t('热门 TOP'), 'sortR', _vrBrowseSort === 'Rating', () => {
       _vrBrowseSort = 'Rating'
-      vrBrowserFetch('热门 TOP', () => browseBeatSaver('Rating'))
+      vrBrowserFetch(t('热门 TOP'), () => browseBeatSaver('Rating'))
     })
-    chip(176, 142, 140, 52, '最新 NEW', 'sortL', _vrBrowseSort === 'Latest', () => {
+    chip(176, 142, 140, 52, t('最新 NEW'), 'sortL', _vrBrowseSort === 'Latest', () => {
       _vrBrowseSort = 'Latest'
-      vrBrowserFetch('最新 NEW', () => browseBeatSaver('Latest'))
+      vrBrowserFetch(t('最新 NEW'), () => browseBeatSaver('Latest'))
     })
-    chip(328, 142, 140, 52, '榜单热度', 'sortBL', false, () => {
-      vrBrowserFetch('BeatLeader · 榜单热度', () => browseBeatLeader('trending'))
+    chip(328, 142, 140, 52, t('榜单热度'), 'sortBL', false, () => {
+      vrBrowserFetch('BeatLeader · ' + t('榜单热度'), () => browseBeatLeader('trending'))
     })
-    chip(480, 142, 130, 52, '排位谱', 'sortBLR', false, () => {
-      vrBrowserFetch('BeatLeader · 排位谱', () => browseBeatLeader('ranked'))
+    chip(480, 142, 130, 52, t('排位谱'), 'sortBLR', false, () => {
+      vrBrowserFetch('BeatLeader · ' + t('排位谱'), () => browseBeatLeader('ranked'))
     })
 
-    section('分类 GENRE', 236)
+    section(t('分类 GENRE'), 236)
     g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
     let cx = 24, cy = 256
     for (const [tag, label] of VR_TAGS) {
       const w = Math.ceil(g.measureText(label).width) + 36
       if (cx + w > W - 24) { cx = 24; cy += 62 }
-      const sortLabel = _vrBrowseSort === 'Rating' ? '热门' : '最新'
-      chip(cx, cy, w, 50, label, 'tag' + tag, false, () => {
-        vrBrowserFetch(`${sortLabel} · ${label}`, () => browseBeatSaver(_vrBrowseSort, 0, tag))
+      const sortLabel = _vrBrowseSort === 'Rating' ? t('热门') : t('最新')
+      chip(cx, cy, w, 50, t(label), 'tag' + tag, false, () => {
+        vrBrowserFetch(`${sortLabel} · ${t(label)}`, () => browseBeatSaver(_vrBrowseSort, 0, tag))
       })
       cx += w + 12
     }
     cy += 62
 
-    section('快捷搜索 QUICK', cy + 32)
+    section(t('快捷搜索 QUICK'), cy + 32)
     g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
     cx = 24; cy += 52
     for (const q of VR_QUICK) {
@@ -2380,7 +2388,7 @@ export function useGame() {
     g.fillStyle = '#ffd76e'
     g.font = 'bold 27px "Rajdhani", "PingFang SC", sans-serif'
     g.textAlign = 'center'
-    g.fillText('键盘搜索 · 输入歌名', W / 2, ky + 39)
+    g.fillText(t('键盘搜索 · 输入歌名'), W / 2, ky + 39)
     regions.push({ x: 24, y: ky, w: W - 48, h: 76, key: 'kb', act: () => vrKeyboardShow() })
 
     // Footer: back to the song list
@@ -2390,7 +2398,7 @@ export function useGame() {
     g.fill()
     g.fillStyle = '#ff9ed9'
     g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText('← 返回歌单', W / 2, fy + (LIST_FOOT - 20) / 2)
+    g.fillText(t('← 返回歌单'), W / 2, fy + (LIST_FOOT - 20) / 2)
     regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'back', act: () => fillVRMenuSongs() })
     _drawVRDlStrip(g, W, H)
     tex.needsUpdate = true
@@ -2449,9 +2457,9 @@ export function useGame() {
     g.fillStyle = '#7d88ad'
     g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
     g.textAlign = 'left'
-    g.fillText('画质', 28, 232)
+    g.fillText(t('画质'), 28, 232)
     let qx = 90
-    for (const [qk, ql] of [['low', '低'], ['medium', '中'], ['high', '高']] as [string, string][]) {
+    for (const [qk, ql] of [['low', t('低')], ['medium', t('中')], ['high', t('高')]] as [string, string][]) {
       const cur = quality.value === qk
       const hovered = _vrHoverKey === 'detail:q' + qk
       _rr(g, qx, 210, 74, 44, 22)
@@ -2472,10 +2480,10 @@ export function useGame() {
     // VR frame limiter + full-wall (原画) toggle
     g.fillStyle = '#7d88ad'
     g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText('帧率', 28, 284)
+    g.fillText(t('帧率'), 28, 284)
     let fx = 90
     // Tiers resolve to the DEVICE's native rates (unsupported rates flicker)
-    const tiers: [string, string][] = [['low', '低'], ['mid', '中'], ['high', '高'], ['max', '无上限']]
+    const tiers: [string, string][] = [['low', t('低')], ['mid', t('中')], ['high', t('高')], ['max', t('无上限')]]
     for (const [tk, tl] of tiers) {
       const rate = vrRateFor(tk)
       const label = rate != null ? `${tl}${rate}` : tl
@@ -2506,7 +2514,7 @@ export function useGame() {
       g.fillStyle = vrFullWalls ? '#241100' : '#ffcf9e'
       g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
       g.textAlign = 'center'
-      g.fillText(vrFullWalls ? '原画墙 ⚠开' : '原画墙 关', W - pw / 2 - 28, 285)
+      g.fillText(vrFullWalls ? t('原画墙 ⚠开') : t('原画墙 关'), W - pw / 2 - 28, 285)
       regions.push({ x: W - pw - 28, y: 262, w: pw, h: 44, key: 'fullwalls', act: () => {
         vrFullWalls = !vrFullWalls
         localStorage.setItem('bs_vr_fullwalls', vrFullWalls ? '1' : '0')
@@ -2515,7 +2523,7 @@ export function useGame() {
       if (vrFullWalls) {
         g.fillStyle = '#ffb45e'
         g.font = '16px "Rajdhani", "PingFang SC", sans-serif'
-        g.fillText('可能卡顿·下局生效', W - pw / 2 - 28, 318)
+        g.fillText(t('可能卡顿·下局生效'), W - pw / 2 - 28, 318)
       }
     }
     g.textAlign = 'left'
@@ -2557,7 +2565,7 @@ export function useGame() {
     g.fillStyle = '#0a0e1e'
     g.font = 'bold 42px "Rajdhani", "PingFang SC", sans-serif'
     g.textAlign = 'center'
-    g.fillText('开始 · PLAY', W / 2, byy + 47)
+    g.fillText(t('开始 · PLAY'), W / 2, byy + 47)
     regions.push({ x: 28, y: byy, w: W - 56, h: 92, key: 'play', act: () => {
       const i = vrSelIdx
       startSong(i)
@@ -2572,7 +2580,7 @@ export function useGame() {
       g.fill()
       g.fillStyle = '#ff8f8f'
       g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
-      g.fillText('删除 DELETE', W - 139, dy + 29)
+      g.fillText(t('删除 DELETE'), W - 139, dy + 29)
       regions.push({ x: W - 250, y: dy, w: 222, h: 56, key: 'del', act: async () => {
         await deleteDownloadedSong(vrSelIdx)
         vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, vrSelIdx))
@@ -2670,7 +2678,7 @@ export function useGame() {
     kbCtx.textBaseline = 'middle'
     kbCtx.fillStyle = _vrKbText ? '#ffffff' : '#5a6484'
     kbCtx.font = 'bold 64px "Rajdhani", "PingFang SC", sans-serif'
-    kbCtx.fillText(_vrKbText || '输入歌名 · TYPE TO SEARCH', kbCanvas.width / 2, kbCanvas.height / 2)
+    kbCtx.fillText(_vrKbText || t('输入歌名 · TYPE TO SEARCH'), kbCanvas.width / 2, kbCanvas.height / 2)
     kbTex.needsUpdate = true
   }
 
@@ -2706,10 +2714,10 @@ export function useGame() {
     })
     const y2 = 0.42 - 4 * 0.36
     const specials: [string, number, number, string, () => void][] = [
-      ['← 返回', 0.72, -1.5, '#ff6ec7', () => vrBrowserCats()],
-      ['空格 SPACE', 1.1, -0.45, '#39445e', () => { _vrKbText += ' '; _updateKbDisplay() }],
-      ['删除 DEL', 0.72, 0.55, '#ff6e6e', () => { _vrKbText = _vrKbText.slice(0, -1); _updateKbDisplay() }],
-      ['搜索 GO', 0.85, 1.45, '#ffd76e', () => {
+      [t('← 返回'), 0.72, -1.5, '#ff6ec7', () => vrBrowserCats()],
+      [t('空格 SPACE'), 1.1, -0.45, '#39445e', () => { _vrKbText += ' '; _updateKbDisplay() }],
+      [t('删除 DEL'), 0.72, 0.55, '#ff6e6e', () => { _vrKbText = _vrKbText.slice(0, -1); _updateKbDisplay() }],
+      [t('搜索 GO'), 0.85, 1.45, '#ffd76e', () => {
         const q = _vrKbText.trim()
         if (q) vrBrowserFetch(`搜索: ${q}`, () => searchBeatSaver(q))
       }],
@@ -2772,14 +2780,14 @@ export function useGame() {
   }
 
   async function vrBrowserFetch(label: string, fetcher: () => Promise<any[]>) {
-    _vrShowSpinner('加载中 LOADING')
+    _vrShowSpinner(t('加载中 LOADING'))
     try {
       const list = await fetcher()
       if (state.value !== 'vrmenu') return
-      if (!list.length) { _vrBrowserMessage('没有结果', () => vrBrowserCats()); return }
+      if (!list.length) { _vrBrowserMessage(t('没有结果'), () => vrBrowserCats()); return }
       vrShowBrowseResults(list, label)
     } catch (e) {
-      if (state.value === 'vrmenu') _vrBrowserMessage('加载失败', () => vrBrowserCats())
+      if (state.value === 'vrmenu') _vrBrowserMessage(t('加载失败'), () => vrBrowserCats())
     }
   }
 
@@ -3168,12 +3176,12 @@ export function useGame() {
     vrPanelGroup.position.set(0, st === 'paused' ? 1.1 : 0.6, -2.1)
     scene.add(vrPanelGroup)
     const defs = st === 'paused' ? [
-      { cn: '继续', en: 'RESUME', accent: '#39e07f', act: () => resumeSong() },
-      { cn: '重新开始', en: 'RESTART', accent: '#7fdcff', act: () => startSong(songIdx.value) },
-      { cn: '选歌菜单', en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
+      { cn: t('继续'), en: 'RESUME', accent: '#39e07f', act: () => resumeSong() },
+      { cn: t('重新开始'), en: 'RESTART', accent: '#7fdcff', act: () => startSong(songIdx.value) },
+      { cn: t('选歌菜单'), en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
     ] : [
-      { cn: st === 'failed' ? '重试' : '再来一次', en: 'RETRY', accent: '#7fdcff', act: () => startSong(songIdx.value) },
-      { cn: '选歌菜单', en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
+      { cn: st === 'failed' ? t('重试') : t('再来一次'), en: 'RETRY', accent: '#7fdcff', act: () => startSong(songIdx.value) },
+      { cn: t('选歌菜单'), en: 'SONG MENU', accent: '#ff6ec7', act: () => quitToMenu() },
     ]
     defs.forEach((d, i) => {
       const card = _makePanelCard(d.cn, d.en, d.accent)

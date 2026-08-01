@@ -1,3 +1,5 @@
+**中文 | [English](README.en.md)**
+
 # Beat Saber WebXR
 
 网页版节奏光剑。桌面鼠标、摄像头体感、WebXR VR 三种玩法,深度兼容 BeatSaver 社区 20 万+ 谱面(Chroma / Noodle Extensions / 观赏谱 / modchart),舞台与方块按官方观感还原。

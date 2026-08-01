@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
 import { browseBeatSaver, browseBeatLeader } from './audio/beatsaver'
+import { t, lang, setLang } from './i18n'
 
 const game = useGame()
 provide('game', game)
@@ -118,7 +119,7 @@ async function browseCats(reset = true) {
   if (reset) { bsPage.value = 0; bsResults.value = [] }
   bsBrowseActive.value = true
   const tagLabel = BS_TAGS.find(t => t[0] === bsTag.value)?.[1] || '全部'
-  bsSearchLabel.value = `${bsSort.value === 'Rating' ? '热门' : '最新'} · ${tagLabel}`
+  bsSearchLabel.value = `${bsSort.value === 'Rating' ? t('热门') : t('最新')} · ${t(tagLabel)}`
   try {
     const list = await browseBeatSaver(bsSort.value, bsPage.value, bsTag.value)
     bsResults.value = reset ? list : bsResults.value.concat(list)
@@ -144,7 +145,7 @@ async function browseBL(mode: 'trending' | 'ranked', reset = true) {
   if (reset) { bsPage.value = 0; bsResults.value = [] }
   bsBrowseActive.value = true
   blMode.value = mode
-  bsSearchLabel.value = mode === 'ranked' ? 'BeatLeader · 排位谱' : 'BeatLeader · 榜单热度'
+  bsSearchLabel.value = mode === 'ranked' ? 'BeatLeader · ' + t('排位谱') : 'BeatLeader · ' + t('榜单热度')
   try {
     const list = await browseBeatLeader(mode, bsPage.value)
     bsResults.value = reset ? list : bsResults.value.concat(list)
@@ -177,7 +178,7 @@ async function downloadTop10() {
     const batch = await fetchTopSlice(topOffset.value)
     for (let i = 0; i < batch.length; i++) {
       const r = batch[i]
-      topNote.value = `批量下载 ${i + 1}/${batch.length} · ${r.songName || r.name}`
+      topNote.value = `${t('下载中')} ${r.songName || r.name}(${i + 1}/${batch.length})`
       try { await game.downloadSong(r) } catch (e) { /* skip failed map */ }
     }
     topNote.value = ''
@@ -185,10 +186,10 @@ async function downloadTop10() {
     localStorage.setItem('bs_top_offset', String(topOffset.value))
     // Show the NEXT batch so 再点一次继续下 10 首
     bsBrowseActive.value = false
-    bsSearchLabel.value = `热门 · 已下载前 ${topOffset.value} 首,下一批 ↓`
+    bsSearchLabel.value = `${t('热门')} · TOP ${topOffset.value} ↓`
     bsResults.value = await fetchTopSlice(topOffset.value)
   } catch (e: any) {
-    bsError.value = '批量下载失败: ' + e.message
+    bsError.value = 'Batch failed: ' + e.message
     topNote.value = ''
   }
   topBusy.value = false
@@ -210,7 +211,7 @@ async function onFileSelect(e) {
 async function handleFile(file) {
   uploadBusy.value = true
   try {
-    uploadStatus.value = '分析中…'
+    uploadStatus.value = t('分析中…')
     uploadErr.value = false
     const result = await game.handleMusicFile(file)
     uploadStatus.value = `${result.custom.name} — ${result.custom.bpm} BPM · ${result.custom.desc.split('·')[1]}`
@@ -290,6 +291,10 @@ onUnmounted(() => {
     <!-- Top-right external links -->
     <div id="ext-links">
       <a
+        class="lang" :title="lang === 'zh' ? 'Switch to English' : '切换中文'"
+        @mouseenter="game.uiHover()" @click="game.uiClick(); setLang(lang === 'zh' ? 'en' : 'zh')"
+      ><span class="lang-txt">{{ lang === 'zh' ? 'EN' : '中' }}</span></a>
+      <a
         class="bili" href="https://www.bilibili.com/video/BV1LCK66oEYk/" target="_blank" rel="noopener"
         title="演示视频 · bilibili" @mouseenter="game.uiHover()" @click="game.uiClick()"
       >
@@ -365,13 +370,13 @@ onUnmounted(() => {
             class="play-btn"
             @click="game.uiClick(); game.enterVR(selectedIdx)"
             @mouseenter="game.uiHover()"
-          >进入 VR · ENTER VR</div>
+          >{{ t('进入 VR · ENTER VR') }}</div>
           <div
             v-else
             class="play-btn"
             @click="playSelected()"
             @mouseenter="game.uiHover()"
-          >开始 · PLAY</div>
+          >{{ t('开始 · PLAY') }}</div>
         </div>
       </div>
 
@@ -383,7 +388,7 @@ onUnmounted(() => {
           @mouseenter="game.uiHover()"
         >
           <span class="sw"></span>
-          DEMO MODE · 自动演示
+          {{ t('DEMO MODE · 自动演示') }}
         </div>
         <div
           id="auto-toggle"
@@ -392,7 +397,7 @@ onUnmounted(() => {
           @mouseenter="game.uiHover()"
         >
           <span class="sw"></span>
-          NO FAIL · 血量清空不失败但扣 50% 分数
+          {{ t('NO FAIL · 血量清空不失败但扣 50% 分数') }}
         </div>
         <div
           id="auto-toggle"
@@ -401,10 +406,10 @@ onUnmounted(() => {
           @mouseenter="game.uiHover()"
         >
           <span class="sw"></span>
-          体感模式 · 摄像头食指控剑{{ game.handStatus.value ? ' — ' + game.handStatus.value : '' }}
+          {{ t('体感模式 · 摄像头食指控剑') }}{{ game.handStatus.value ? ' — ' + t(game.handStatus.value) : '' }}
         </div>
         <div class="quality-line">
-          <span class="q-label">画质 GRAPHICS</span>
+          <span class="q-label">{{ t('画质 GRAPHICS') }}</span>
           <button
             v-for="q in [['high','高'],['medium','中'],['low','低']]"
             :key="q[0]"
@@ -412,7 +417,7 @@ onUnmounted(() => {
             :class="{ on: game.quality.value === q[0] }"
             @click="game.setQuality(q[0])"
             @mouseenter="game.uiHover()"
-          >{{ q[1] }}</button>
+          >{{ t(q[1]) }}</button>
         </div>
       </div>
 
@@ -423,7 +428,7 @@ onUnmounted(() => {
           @click="playSelected()"
           @mouseenter="game.uiHover()"
         >
-          桌面预览 · DESKTOP
+          {{ t('桌面预览 · DESKTOP') }}
         </div>
         <div
           v-else
@@ -437,7 +442,7 @@ onUnmounted(() => {
           @click="game.uiClick(); uploadBusy ? null : $refs.fileInput.click()"
           @mouseenter="game.uiHover()"
         >
-          IMPORT · 导入音乐
+          {{ t('IMPORT · 导入音乐') }}
         </div>
         <div
           v-if="game.SONGS[selectedIdx] && game.SONGS[selectedIdx].id && game.SONGS[selectedIdx].id.startsWith('bs_') && !game.SONGS[selectedIdx].builtin"
@@ -445,14 +450,14 @@ onUnmounted(() => {
           @click="game.uiClick(); game.deleteDownloadedSong(selectedIdx); selectedIdx = 0"
           @mouseenter="game.uiHover()"
         >
-          删除此谱面 · DELETE
+          {{ t('删除此谱面 · DELETE') }}
         </div>
         <div
           class="vr-btn bs-open-btn"
           @click="game.uiClick(); bsShowSearch = true"
           @mouseenter="game.uiHover()"
         >
-          BEATSAVER · 社区谱面搜索
+          {{ t('BEATSAVER · 社区谱面搜索') }}
         </div>
       </div>
       <input ref="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" style="display:none" @change="onFileSelect" />
@@ -483,7 +488,7 @@ onUnmounted(() => {
         >×</div>
       </div>
       <div class="bs-input-row">
-        <input v-model="bsQuery" class="bs-input" placeholder="搜索 或 输入谱面ID（如 4f454）直接下载..." @keyup.enter="doSearch(bsQuery)" />
+        <input v-model="bsQuery" class="bs-input" :placeholder="t('搜索 或 输入谱面ID（如 4f454）直接下载...')" @keyup.enter="doSearch(bsQuery)" />
         <button
           class="bs-btn"
           @mouseenter="game.uiHover()"
@@ -494,32 +499,32 @@ onUnmounted(() => {
         </button>
       </div>
       <div class="bs-browse-row">
-        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Rating' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Rating')">热门</button>
-        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Latest' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Latest')">最新</button>
-        <button class="bs-pill sort" :class="{ on: blMode === 'trending' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('trending')">榜单热度</button>
-        <button class="bs-pill sort" :class="{ on: blMode === 'ranked' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('ranked')">排位谱</button>
+        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Rating' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Rating')">{{ t('热门') }}</button>
+        <button class="bs-pill sort" :class="{ on: !blMode && bsSort === 'Latest' }" @mouseenter="game.uiHover()" @click="game.uiClick(); setSort('Latest')">{{ t('最新') }}</button>
+        <button class="bs-pill sort" :class="{ on: blMode === 'trending' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('trending')">{{ t('榜单热度') }}</button>
+        <button class="bs-pill sort" :class="{ on: blMode === 'ranked' }" @mouseenter="game.uiHover()" @click="game.uiClick(); browseBL('ranked')">{{ t('排位谱') }}</button>
         <span class="bs-sep"></span>
         <button
-          v-for="t in BS_TAGS" :key="'t-' + t[0]"
+          v-for="tg in BS_TAGS" :key="'t-' + tg[0]"
           class="bs-pill"
-          :class="{ on: bsBrowseActive && bsTag === t[0] }"
+          :class="{ on: bsBrowseActive && bsTag === tg[0] }"
           @mouseenter="game.uiHover()"
-          @click="game.uiClick(); setTag(t[0])"
-        >{{ t[1] }}</button>
+          @click="game.uiClick(); setTag(tg[0])"
+        >{{ t(tg[1]) }}</button>
         <span class="bs-sep"></span>
         <button class="bs-pill top10" :disabled="topBusy" @mouseenter="game.uiHover()" @click="game.uiClick(); downloadTop10()">
-          {{ topBusy ? '批量下载中…' : `一键下载 TOP10${topOffset ? ' (已下 ' + topOffset + ')' : ''}` }}
+          {{ topBusy ? t('批量下载中…') : t('一键下载 TOP10') + (topOffset ? ' (' + topOffset + ')' : '') }}
         </button>
       </div>
       <div v-if="topNote" class="bs-progress-label bs-top-note">{{ topNote }}</div>
       <div v-if="game.dlInfo.value.active" class="bs-progress">
-        <div class="bs-progress-label">下载中 {{ game.dlInfo.value.name }}({{ Math.min(game.dlInfo.value.done + 1, game.dlInfo.value.total) }}/{{ game.dlInfo.value.total }}) · {{ game.downloadProgress.value.stage === 'parsing' ? '解析中' : (game.downloadProgress.value.pct || 0) + '%' }}</div>
+        <div class="bs-progress-label">{{ t('下载中') }} {{ game.dlInfo.value.name }}({{ Math.min(game.dlInfo.value.done + 1, game.dlInfo.value.total) }}/{{ game.dlInfo.value.total }}) · {{ game.downloadProgress.value.stage === 'parsing' ? t('解析中') : (game.downloadProgress.value.pct || 0) + '%' }}</div>
         <div class="bs-progress-bar"><div class="bs-progress-fill" :style="{ width: (game.downloadProgress.value.pct || 0) + '%' }"></div></div>
       </div>
       <div v-if="bsError" class="bs-error">{{ bsError }}</div>
       <div class="bs-body">
         <div v-if="bsResults.length" class="bs-results">
-          <div class="bs-section-label">{{ bsSearchLabel ? '结果 · ' + bsSearchLabel : 'RESULTS' }}</div>
+          <div class="bs-section-label">{{ bsSearchLabel ? t('结果 · ') + bsSearchLabel : 'RESULTS' }}</div>
           <div
             v-for="r in bsResults" :key="r.id"
             class="bs-result"
@@ -536,7 +541,7 @@ onUnmounted(() => {
               <div class="bsr-bpm">{{ Math.round(r.bpm) }} <span>BPM</span></div>
               <div class="bsr-up">↑{{ r.upvotes }}</div>
             </div>
-            <div class="bsr-dl">{{ game.dlIds.value.includes(r.id) ? (game.dlInfo.value.name === r.songName ? '下载中…' : '排队中') : ((game.songListVersion.value, game.SONGS.some(s => s.id === 'bs_' + r.id)) ? '✓ 已下载' : '下载 DOWNLOAD') }}</div>
+            <div class="bsr-dl">{{ game.dlIds.value.includes(r.id) ? (game.dlInfo.value.name === r.songName ? t('下载中…') : t('排队中')) : ((game.songListVersion.value, game.SONGS.some(s => s.id === 'bs_' + r.id)) ? t('✓ 已下载') : t('下载 DOWNLOAD')) }}</div>
           </div>
           <button
             v-if="bsBrowseActive"
@@ -544,7 +549,7 @@ onUnmounted(() => {
             :disabled="bsLoading"
             @mouseenter="game.uiHover()"
             @click="game.uiClick(); browseMore()"
-          >{{ bsLoading ? '加载中…' : '加载更多 · MORE' }}</button>
+          >{{ bsLoading ? t('加载中…') : t('加载更多 · MORE') }}</button>
         </div>
         <template v-else>
           <div class="bs-popular-section">

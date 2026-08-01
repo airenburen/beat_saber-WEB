@@ -167,6 +167,18 @@ canvas {
   fill: currentColor;
 }
 
+#ext-links a.lang {
+  font-weight: 800;
+  font-size: 15px;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+
+#ext-links a.lang:hover {
+  color: #7fdcff;
+  border-color: rgba(127, 220, 255, 0.6);
+}
+
 #menu::before {
   content: "";
   position: absolute;

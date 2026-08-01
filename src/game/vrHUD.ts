@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { t } from '../i18n'
 
 function makeCanvas(w, h) {
   const c = document.createElement('canvas')
@@ -349,7 +350,7 @@ export class VRHUD {
     ctx.textAlign = 'center'
     ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', W / 2, H - 90)
+    ctx.fillText(t('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)'), W / 2, H - 90)
   }
 
   _drawFail(title, sub, score) {
@@ -382,7 +383,7 @@ export class VRHUD {
 
     ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', W / 2, H - 70)
+    ctx.fillText(t('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)'), W / 2, H - 70)
   }
 
   _drawPause() {
@@ -397,7 +398,7 @@ export class VRHUD {
 
     ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#7b84ab'
-    ctx.fillText('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)', 512, 180)
+    ctx.fillText(t('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)'), 512, 180)
   }
 
   setSongLabel(label) {
