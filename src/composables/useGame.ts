@@ -2493,12 +2493,22 @@ export function useGame() {
   }
 
   // Desktop-style panels are the VR song-select "home"
+  let _vrEnterSel: number | null = null
   function fillVRMenuSongs() {
     clearVRMenuCards()
     _ensureVRPanels()
     _vrListMode = 'songs'
-    _vrListScroll = 0
-    vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, songIdx.value || 0))
+    if (_vrEnterSel != null) {
+      // Carry the desktop menu selection into VR: focus it, scroll it into
+      // view and start its preview so the transition is seamless
+      vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, _vrEnterSel))
+      _vrEnterSel = null
+      _vrListScroll = Math.max(0, vrSelIdx * LIST_ROW - 316)
+      previewSong(vrSelIdx)
+    } else {
+      _vrListScroll = 0
+      vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, songIdx.value || 0))
+    }
     _vrListDirty = true
     _vrDetailDirty = true
   }
@@ -3145,8 +3155,10 @@ export function useGame() {
     if (vrLaserRight) { scene.remove(vrLaserRight); vrLaserRight = null }
   }
 
-  async function enterVR() {
+  async function enterVR(selIdx?: number) {
     if (!XR.supported || XR.active) return
+    // Remember the desktop selection so the VR song list opens on it
+    if (typeof selIdx === 'number') _vrEnterSel = selIdx
     if (synth) { synth.stopPreview() }
     stopEventPreview()
     log('enterVR', 'requesting session')

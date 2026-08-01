@@ -360,7 +360,7 @@ onUnmounted(() => {
           <div
             v-if="game.xrSupported.value"
             class="play-btn"
-            @click="game.uiClick(); game.enterVR()"
+            @click="game.uiClick(); game.enterVR(selectedIdx)"
             @mouseenter="game.uiHover()"
           >进入 VR · ENTER VR</div>
           <div
