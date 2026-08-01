@@ -1001,7 +1001,7 @@ export function useGame() {
     energy.value = 0.5
     progress.value = 0
 
-    songLabel.value = `《${meta.value.name}》 · ${meta.value.style} · ${meta.value.bpm} BPM${auto.value ? ' · 纯享演示' : ''}`
+    songLabel.value = `《${t(meta.value.name)}》 · ${t(meta.value.style)} · ${meta.value.bpm} BPM${auto.value ? ' · ' + t('纯享演示') : ''}`
 
     countdownVisible.value = true
     countdownNum.value = ''
@@ -2196,16 +2196,16 @@ export function useGame() {
       g.textAlign = 'left'
       g.fillStyle = '#ffffff'
       g.font = 'bold 28px "Rajdhani", "PingFang SC", sans-serif'
-      const name = browse ? (it.songName || it.name || '') : (it.name || '')
+      const name = browse ? (it.songName || it.name || '') : t(it.name || '')
       g.fillText(_fitText(g, String(name), W - 260), 112, y + 36)
       g.fillStyle = '#9aa4c8'
       g.font = '21px "Rajdhani", "PingFang SC", sans-serif'
       const sub = browse
         ? `${it.songAuthor || it.levelAuthor || ''} · ${Math.round(it.bpm || 0)} BPM`
-        : `${it.en || ''} · ${it.bpm} BPM`
+        : `${t(it.en || '') === t(it.name || '') ? t(it.style || '') : t(it.en || '')} · ${it.bpm} BPM`
       g.fillText(_fitText(g, sub, W - 260), 112, y + 66)
       // Right chip: difficulty / upvotes / download state
-      let chip = browse ? `▲${it.upvotes ?? 0}` : String(it.diff || '')
+      let chip = browse ? `▲${it.upvotes ?? 0}` : t(String(it.diff || ''))
       if (browse) {
         if (dlIds.value.includes(String(it.id))) chip = dlInfo.value.name === (it.songName || it.name) ? t('下载中…') : t('排队中')
         else if (SONGS.find(s => s.id === 'bs_' + it.id)) chip = t('✓ 已下载')
@@ -2442,13 +2442,13 @@ export function useGame() {
     g.textAlign = 'left'
     g.fillStyle = '#ffffff'
     g.font = 'bold 40px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText(_fitText(g, String(s.name || ''), W - 250), 222, 70)
+    g.fillText(_fitText(g, t(String(s.name || '')), W - 250), 222, 70)
     g.fillStyle = '#9aa4c8'
     g.font = '24px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText(_fitText(g, String(s.en || ''), W - 250), 222, 116)
+    g.fillText(_fitText(g, t(String(s.en || '')) === t(String(s.name || '')) ? '' : t(String(s.en || '')), W - 250), 222, 116)
     g.fillStyle = accent
     g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText(_fitText(g, `${s.style || ''} · ${s.bpm} BPM`, W - 250), 222, 158)
+    g.fillText(_fitText(g, `${t(s.style || '')} · ${s.bpm} BPM`, W - 250), 222, 158)
 
     // Graphics quality pills (same as the desktop quality-line)
     g.fillStyle = '#7d88ad'
@@ -2531,7 +2531,7 @@ export function useGame() {
       g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
       let px = 28
       for (const d of s.diffList) {
-        const label = String(d.label || d.key)
+        const label = t(String(d.label || d.key))
         const pw = g.measureText(label).width + 40
         if (px + pw > W - 28) { px = 28; py += 62 }
         const cur = s.internal?.currentDiff === d.key

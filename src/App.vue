@@ -39,7 +39,7 @@ function playSelected() {
   game.uiClick()
   if (game.SONGS[selectedIdx.value]) game.startSong(selectedIdx.value)
 }
-const uploadStatus = ref('CLICK OR DROP AUDIO FILE (MP3 / WAV / M4A…)  ·  AUTO ANALYZE BEAT & MOOD')
+const uploadStatus = ref('点击或拖入音频文件（MP3 / WAV / M4A…） · 自动分析节拍与情绪')
 const uploadErr = ref(false)
 const uploadBusy = ref(false)
 
@@ -336,8 +336,8 @@ onUnmounted(() => {
         >
           <div class="row-cover" :style="{ background: song.cardBg }"></div>
           <div class="row-info">
-            <div class="row-name">{{ song.name }}</div>
-            <div class="row-sub">{{ song.en }} · {{ song.diff }}</div>
+            <div class="row-name">{{ t(song.name) }}</div>
+            <div class="row-sub">{{ t(song.en) === t(song.name) ? t(song.style) : t(song.en) }} · {{ t(song.diff) }}</div>
           </div>
           <div class="row-bpm">{{ song.bpm }}<span> BPM</span></div>
           <div
@@ -355,13 +355,13 @@ onUnmounted(() => {
       <div class="detail-main">
         <div class="detail-cover" :style="{ background: game.SONGS[selectedIdx].cardBg }"></div>
         <div class="detail-info">
-          <div class="detail-name">{{ game.SONGS[selectedIdx].name }}</div>
+          <div class="detail-name">{{ t(game.SONGS[selectedIdx].name) }}</div>
           <div class="detail-en">{{ game.SONGS[selectedIdx].en }}</div>
           <div class="detail-chips">
             <span class="chip">{{ game.SONGS[selectedIdx].bpm }} BPM</span>
-            <span class="chip chip-diff">{{ game.SONGS[selectedIdx].diff }}</span>
-            <span class="chip">{{ game.SONGS[selectedIdx].style }}</span>
-            <span class="chip chip-desc">{{ game.SONGS[selectedIdx].desc }}</span>
+            <span class="chip chip-diff">{{ t(game.SONGS[selectedIdx].diff) }}</span>
+            <span class="chip">{{ t(game.SONGS[selectedIdx].style) }}</span>
+            <span class="chip chip-desc">{{ t(game.SONGS[selectedIdx].desc || '').replace('谱师', t('谱师')).replace('未知', t('未知')) }}</span>
           </div>
           <div class="quality-line" v-if="game.SONGS[selectedIdx].diffList && game.SONGS[selectedIdx].diffList.length > 1" :key="'d' + game.songListVersion.value">
             <span class="q-label">难度 DIFFICULTY</span>
@@ -372,7 +372,7 @@ onUnmounted(() => {
               :class="{ on: game.SONGS[selectedIdx].internal && game.SONGS[selectedIdx].internal.currentDiff === d.key }"
               @click="game.setSongDifficulty(selectedIdx, d.key)"
               @mouseenter="game.uiHover()"
-            >{{ d.label }}</button>
+            >{{ t(d.label) }}</button>
           </div>
           <!-- VR-capable devices lead with VR; desktop play becomes the preview entry -->
           <div
@@ -472,11 +472,11 @@ onUnmounted(() => {
       </div>
       <input ref="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" style="display:none" @change="onFileSelect" />
 
-      <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ uploadStatus }}</div>
+      <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ t(uploadStatus) }}</div>
 
       <div id="controls-hint">
-        <b>DESKTOP</b> — DEMO autoplay / hand tracking · <b>ESC</b> pause<br />
-        <b>VR</b> — HTTPS required · Left red · Right blue · Trigger select · Grip pause
+        {{ t('桌面 — 自动演示 / 体感控剑 · ESC 暂停') }}<br />
+        {{ t('VR — 需 HTTPS · 左红右蓝 · 扳机选择 · 握把暂停') }}
       </div>
     </section>
   </div>

@@ -71,7 +71,7 @@ const EN: Record<string, string> = {
   '画质': 'Quality', '帧率': 'FPS', '无上限': 'Max',
   '原画墙 ⚠开': 'Full walls ⚠ON', '原画墙 关': 'Full walls OFF',
   '可能卡顿·下局生效': 'may stutter · next song',
-  '删除 DELETE': 'DELETE', '谱师': 'Mapper',
+  '删除 DELETE': 'DELETE', '谱师': 'Mapper', '未知': 'Unknown',
   '继续': 'RESUME', '重新开始': 'RESTART', '选歌菜单': 'SONG MENU', '重试': 'RETRY', '再来一次': 'RETRY',
   '激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)': 'Point the laser at a button and pull the trigger',
   '摄像头启动中…': 'Starting camera…', '已就绪 · 举起双手食指': 'Ready · raise both index fingers',
@@ -80,6 +80,16 @@ const EN: Record<string, string> = {
   '源码 · GitHub': 'Source · GitHub', '演示视频 · bilibili': 'Demo video · bilibili',
   '分析中…': 'Analyzing…', '分析失败': 'Analyze failed',
   '自动演示': 'DEMO',
+  '纯享演示': 'DEMO',
+  '霓虹脉冲': 'NEON PULSE', '墨影山河': 'INK SHADOWS', '星海远航': 'STARBOUND',
+  '电子舞曲 · EDM': 'EDM', '国风 · 古筝竹笛': 'Guzheng · Chinese folk', '太空合成波 · Synthwave': 'Synthwave',
+  '困难': 'Hard', '简单': 'Easy', '普通': 'Normal',
+  '穿行赛博都市的霓虹峡谷，激光与节拍同频闪烁。': 'Race through a cyber-city neon canyon, lasers flashing on the beat.',
+  '月照水墨群山，灯河随古筝声缓缓升起。': 'Moonlit ink-wash mountains; a river of lanterns rises with the guzheng.',
+  '跃迁引擎轰鸣，星云与流光在舷窗外飞驰。': 'Warp engines roar as nebulae streak past the viewport.',
+  '点击或拖入音频文件（MP3 / WAV / M4A…） · 自动分析节拍与情绪': 'CLICK OR DROP AUDIO FILE (MP3 / WAV / M4A…) · AUTO ANALYZE BEAT & MOOD',
+  '桌面 — 自动演示 / 体感控剑 · ESC 暂停': 'DESKTOP — DEMO autoplay / hand tracking · ESC pause',
+  'VR — 需 HTTPS · 左红右蓝 · 扳机选择 · 握把暂停': 'VR — HTTPS required · Left red · Right blue · Trigger select · Grip pause',
 }
 
 const ZH_TW: Record<string, string> = {
@@ -120,6 +130,13 @@ const ZH_TW: Record<string, string> = {
   '源码 · GitHub': '原始碼 · GitHub', '演示视频 · bilibili': '演示影片 · bilibili',
   '分析中…': '分析中…', '分析失败': '分析失敗',
   '自动演示': '自動演示',
+  '纯享演示': '純享演示',
+  '霓虹脉冲': '霓虹脈衝', '墨影山河': '墨影山河', '星海远航': '星海遠航',
+  '电子舞曲 · EDM': '電子舞曲 · EDM', '国风 · 古筝竹笛': '國風 · 古箏竹笛', '太空合成波 · Synthwave': '太空合成波 · Synthwave',
+  '困难': '困難', '简单': '簡單', '普通': '普通',
+  '点击或拖入音频文件（MP3 / WAV / M4A…） · 自动分析节拍与情绪': '點擊或拖入音訊檔(MP3/WAV/M4A…) · 自動分析節拍與情緒',
+  '桌面 — 自动演示 / 体感控剑 · ESC 暂停': '桌面 — 自動演示 / 體感控劍 · ESC 暫停',
+  'VR — 需 HTTPS · 左红右蓝 · 扳机选择 · 握把暂停': 'VR — 需 HTTPS · 左紅右藍 · 扳機選擇 · 握把暫停',
 }
 
 const JA: Record<string, string> = {
@@ -160,6 +177,8 @@ const JA: Record<string, string> = {
   '源码 · GitHub': 'ソース · GitHub', '演示视频 · bilibili': 'デモ動画 · bilibili',
   '分析中…': '解析中…', '分析失败': '解析失敗',
   '自动演示': 'デモ',
+  '纯享演示': 'デモ',
+  '困难': 'ハード', '简单': 'イージー', '普通': 'ノーマル',
 }
 
 const KO: Record<string, string> = {
@@ -200,6 +219,8 @@ const KO: Record<string, string> = {
   '源码 · GitHub': '소스 · GitHub', '演示视频 · bilibili': '데모 영상 · bilibili',
   '分析中…': '분석 중…', '分析失败': '분석 실패',
   '自动演示': '데모',
+  '纯享演示': '데모',
+  '困难': '하드', '简单': '이지', '普通': '노멀',
 }
 
 const DE: Record<string, string> = {
