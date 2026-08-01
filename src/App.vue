@@ -14,6 +14,13 @@ watch(game.songListVersion, () => {
   if (selectedIdx.value >= game.SONGS.length) selectedIdx.value = 0
 })
 
+async function delRow(i: number) {
+  await game.deleteDownloadedSong(i)
+  // Keep the detail panel pointing at a valid (and the same, if possible) song
+  if (selectedIdx.value >= game.SONGS.length) selectedIdx.value = 0
+  else if (i < selectedIdx.value) selectedIdx.value--
+}
+
 function selectSong(i) {
   game.uiClick()
   selectedIdx.value = i
@@ -321,7 +328,7 @@ onUnmounted(() => {
           <div
             v-if="song.id && song.id.startsWith('bs_') && !song.builtin"
             class="song-delete"
-            @click.stop="game.uiClick(); game.deleteDownloadedSong(i)"
+            @click.stop="game.uiClick(); delRow(i)"
             title="Delete map"
           >×</div>
         </div>

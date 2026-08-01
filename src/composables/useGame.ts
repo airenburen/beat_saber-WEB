@@ -1388,6 +1388,11 @@ export function useGame() {
     try {
       await deleteMap(song.id)
       SONGS.splice(idx, 1)
+      // Every list keys off these — without them the deleted row lingers
+      songListVersion.value++
+      vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, vrSelIdx))
+      _vrListDirty = true
+      _vrDetailDirty = true
       log('beatmap-deleted', song.name)
     } catch (e) {
       console.error('deleteMap failed:', e)
