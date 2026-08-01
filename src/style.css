@@ -208,6 +208,57 @@ canvas {
   font-weight: 700;
 }
 
+.welcome-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(2, 4, 10, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.welcome-card {
+  max-width: 460px;
+  margin: 0 20px;
+  padding: 30px 32px 26px;
+  border-radius: 16px;
+  background: rgba(10, 14, 30, 0.96);
+  border: 1px solid rgba(127, 220, 255, 0.35);
+  box-shadow: 0 0 48px rgba(90, 130, 255, 0.25);
+}
+
+.welcome-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 1px;
+  margin-bottom: 12px;
+}
+
+.welcome-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #a8b4d8;
+  margin-bottom: 22px;
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.welcome-actions .play-btn.welcome-primary {
+  margin-top: 0;
+  min-width: 0;
+  height: 44px;
+  font-size: 14px;
+  letter-spacing: 2px;
+  padding: 0 22px;
+}
+
 #menu::before {
   content: "";
   position: absolute;

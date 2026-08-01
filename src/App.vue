@@ -30,10 +30,26 @@ function selectSong(i) {
   game.previewSong(i)
 }
 
-// Returning to the menu resumes the selected song's preview
+// Returning to the menu focuses the song just played and resumes its preview
 watch(game.state, (s) => {
-  if (s === 'menu') game.previewSong(selectedIdx.value)
+  if (s === 'menu') {
+    const cur = game.songIdx.value
+    if (cur >= 0 && cur < game.SONGS.length) selectedIdx.value = cur
+    game.previewSong(selectedIdx.value)
+  }
 })
+
+// First visit: localized welcome (shown once the local language is resolved),
+// nudging players toward community maps for the full experience
+const showWelcome = ref(!localStorage.getItem('bs_welcomed'))
+function dismissWelcome(browse: boolean) {
+  game.uiClick()
+  localStorage.setItem('bs_welcomed', '1')
+  showWelcome.value = false
+  if (browse) bsShowSearch.value = true
+  // the dismiss click doubles as the audio-unlock gesture — start the preview
+  game.previewSong(selectedIdx.value)
+}
 
 function playSelected() {
   game.uiClick()
@@ -268,6 +284,18 @@ onUnmounted(() => {
 
   <!-- Webcam preview for hand-tracking mode (mirrored) -->
   <div id="hand-preview" ref="handPreviewRef" :class="{ show: game.handMode.value }"></div>
+
+  <!-- First-visit welcome -->
+  <div v-if="showWelcome && game.state.value === 'menu'" class="welcome-mask">
+    <div class="welcome-card">
+      <div class="welcome-title">{{ t('欢迎来到 Beat Saber Web！') }}</div>
+      <div class="welcome-body">{{ t('内置歌曲仅作演示。前往 BEATSAVER 下载社区谱面，体验完整玩法与观赏谱！') }}</div>
+      <div class="welcome-actions">
+        <div class="play-btn welcome-primary" @mouseenter="game.uiHover()" @click="dismissWelcome(true)">{{ t('去逛社区谱') }}</div>
+        <div class="vr-btn" @mouseenter="game.uiHover()" @click="dismissWelcome(false)">{{ t('开始体验') }}</div>
+      </div>
+    </div>
+  </div>
 
   <!-- Local song loading toast (official-style notification) -->
   <div v-if="game.localLoad.value.active" id="load-toast">
