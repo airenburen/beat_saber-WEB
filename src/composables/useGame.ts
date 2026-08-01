@@ -2466,7 +2466,7 @@ export function useGame() {
     g.fillText('帧率', 28, 284)
     let fx = 90
     // Tiers resolve to the DEVICE's native rates (unsupported rates flicker)
-    const tiers: [string, string][] = [['low', '低'], ['mid', '中'], ['high', '高'], ['max', '原画']]
+    const tiers: [string, string][] = [['low', '低'], ['mid', '中'], ['high', '高'], ['max', '无上限']]
     for (const [tk, tl] of tiers) {
       const rate = vrRateFor(tk)
       const label = rate != null ? `${tl}${rate}` : tl
