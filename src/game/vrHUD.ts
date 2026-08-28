@@ -654,7 +654,7 @@ export class VRHUD {
         const w = geo.parameters.width
         const p = Math.max(0.005, Math.min(progress, 100) / 100)
         this.progressFill.position.x = -(w / 2) * (1 - p)
-        this.progressFill.position.y = -0.51
+        this.progressFill.position.y = -0.68
         this.progressFill.scale.x = p
       }
     }
