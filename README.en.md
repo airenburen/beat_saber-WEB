@@ -4,7 +4,7 @@
 
 A web-based Beat Saber. Three ways to play — desktop mouse, webcam hand tracking, and WebXR VR — with deep compatibility for 200k+ BeatSaver community maps (Chroma / Noodle Extensions / wall-art / modcharts), and stage & block visuals faithful to the official game.
 
-**Play online: https://beatsaber.xixiu.top** (VR requires HTTPS — already set up)
+**Play online: (To avoid causing trouble to the original author due to this project's flaws, the link has been removed from this repository.)**
 
 ## Screenshots
 
