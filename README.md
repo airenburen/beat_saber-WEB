@@ -121,3 +121,16 @@ npm run build    # 产物在 dist/
 - 手部追踪:[MediaPipe](https://github.com/google-ai-edge/mediapipe) HandLandmarker
 - 谱面数据:[BeatSaver](https://beatsaver.com) / [BeatLeader](https://beatleader.xyz) 公开 API
 - 本项目为非商业粉丝作品,与 Beat Games / Meta 无关;"Beat Saber" 商标归其所有者
+
+> **本仓库为二改项目**([airenburen/beat_saber-WEB](https://github.com/airenburen/beat_saber-WEB)),在上游基础上优化使用体验,改动汇总见下节。
+
+## 最近更新(2026-08-29)
+
+- **VR HUD 打磨**:血量条/歌曲进度条下移出视线遮挡区(背景与填充位置三处统一),选歌菜单不再显示游玩 HUD;游戏 UI 固定于场景不随视角旋转,且不被场景雾/结构遮挡(音符/墙体/renderOrder 分层重排)
+- **VR 歌单**:按来源分组(内置/BeatSaver)可独立折叠,排序(默认/名称/BPM/难度);设置按钮移到歌曲面板下方
+- **VR BeatSaver 浏览器**:新增「加载更多」分页(全部接口页码感知、按 ID 去重),BEATSAVER 入口改为列表面板下方独立按钮;语言选择改为与 PC 一致的列表式下拉
+- **桌面端**:歌曲列表分组 + 排序,BeatSaver 按钮移至歌曲列表下方;BeatSaver 谱面详情显示音符/炸弹/墙/密度统计
+- **玩法**:流速调节滑杆(0.5x-3x,本地持久化);自动演示按方块方向挥砍并加入 3D 纵深;开局加载动画展示歌曲信息(桌面 + VR);倒计时动画修复
+- **VR 加载动画**显示封面,选歌/暂停界面渲染层级修复
+
+> 以上更新由 AI 辅助完成,使用模型:**GLM-5.3-Flash**(智谱 Z.ai),经人工提出需求、验收与整合。

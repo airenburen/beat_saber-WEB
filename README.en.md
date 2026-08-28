@@ -108,3 +108,16 @@ Stack: Vue 3 + TypeScript + Three.js (WebXR) + Web Audio + IndexedDB + MediaPipe
 - Hand tracking: [MediaPipe](https://github.com/google-ai-edge/mediapipe) HandLandmarker
 - Map data: the public [BeatSaver](https://beatsaver.com) / [BeatLeader](https://beatleader.xyz) APIs
 - A non-commercial fan project, unaffiliated with Beat Games / Meta; the "Beat Saber" trademark belongs to its owners
+
+> **This repo is a secondary fork** ([airenburen/beat_saber-WEB](https://github.com/airenburen/beat_saber-WEB)) focused on experience optimizations on top of the upstream project — see the changelog below.
+
+## Recent updates (2026-08-29)
+
+- **VR HUD polish**: energy & song-progress bars moved out of the view (bg/fill/update positions unified); gameplay HUD no longer shows in the song-select menu; game UI is scene-anchored (no camera-follow) and no longer occluded by scene fog/structures (notes/walls/renderOrder layering reworked)
+- **VR song list**: grouping by source (Built-in / BeatSaver) with independent collapse, sorting (default / name / BPM / difficulty); settings button moved below the song panel
+- **VR BeatSaver browser**: new "load more" pagination (all fetchers page-aware, dedup by ID), BEATSAVER entry moved to a standalone button below the list panel; language selection now a dropdown list matching the PC UI
+- **Desktop**: song list grouping + sorting, BeatSaver button moved below the song list; BeatSaver map details show note/bomb/wall/NPS stats
+- **Gameplay**: note-speed slider (0.5x-3x, persisted locally); DEMO autoplay swings per note direction with 3D depth; song-intro loading screen (desktop + VR); countdown animation fix
+- **VR intro screen** shows the cover art; song-select / pause panel render-layer fixes
+
+> These updates were AI-assisted, using the model: **GLM-5.3-Flash** (Z.ai), with human-driven requirements, review and integration.
