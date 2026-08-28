@@ -39,14 +39,14 @@ export class Saber {
 
     const g = new THREE.Group()
     const handleGeo = style === 'neon'
-      ? new THREE.CylinderGeometry(0.034, 0.042, 0.3, 6)
-      : new THREE.CylinderGeometry(0.034, 0.04, 0.3, 16)
+      ? new THREE.CylinderGeometry(0.027, 0.033, 0.3, 6)
+      : new THREE.CylinderGeometry(0.027, 0.032, 0.3, 16)
     const handle = new THREE.Mesh(handleGeo, new THREE.MeshLambertMaterial({ color: 0x181820 }))
     handle.position.y = 0
     g.add(handle)
 
     const accent = style === 'ink' ? 0xd8b45a : color
-    ;[[0.145, 0.045], [-0.13, 0.042]].forEach(([y, r]) => {
+    ;[[0.145, 0.036], [-0.13, 0.033]].forEach(([y, r]) => {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(r, 0.009, 8, 24),
         new THREE.MeshBasicMaterial({ color: accent }),
@@ -69,21 +69,21 @@ export class Saber {
     const BL = 1.05
     const by = 0.15 + BL / 2
     const core = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.016, 0.016, BL, 8),
+      new THREE.CylinderGeometry(0.011, 0.011, BL, 8),
       new THREE.MeshBasicMaterial({ color: 0xffffff }),
     )
     core.position.y = by
     g.add(core)
 
     this.glow1 = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, BL * 1.01, 8),
+      new THREE.CylinderGeometry(0.034, 0.034, BL * 1.01, 8),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }),
     )
     this.glow1.position.y = by
     g.add(this.glow1)
 
     this.glow2 = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.11, BL * 1.03, 8),
+      new THREE.CylinderGeometry(0.075, 0.075, BL * 1.03, 8),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }),
     )
     this.glow2.position.y = by

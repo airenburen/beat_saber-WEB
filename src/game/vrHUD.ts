@@ -12,9 +12,11 @@ function makeSprite(canvas, scaleX, scaleY) {
   const tex = new THREE.CanvasTexture(canvas)
   tex.minFilter = THREE.LinearFilter
   tex.magFilter = THREE.LinearFilter
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
-  const sp = new THREE.Sprite(mat)
-  sp.scale.set(scaleX, scaleY, 1)
+  // Fixed plane, NOT a THREE.Sprite: sprites billboard toward the camera and
+  // would keep rotating with the player's view — the HUD is scene-anchored
+  // and must stay put in the world
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
+  const sp = new THREE.Mesh(new THREE.PlaneGeometry(scaleX, scaleY), mat)
   return sp
 }
 
@@ -67,7 +69,13 @@ export class VRHUD {
   pauseTex: THREE.CanvasTexture
   songCtx: CanvasRenderingContext2D
   songCanvas: HTMLCanvasElement
-  songSpr: THREE.Sprite
+  songSpr: THREE.Mesh
+  introCtx: CanvasRenderingContext2D
+  introCanvas: HTMLCanvasElement
+  introPanel: THREE.Group
+  introSp: THREE.Mesh
+  introTex: THREE.CanvasTexture
+  _lastIntro: any
 
   constructor(scene, camera) {
     this.scene = scene
@@ -100,6 +108,30 @@ export class VRHUD {
     this._initFail()
     this._initPausePanel()
     this._initSongLabel()
+    this._initIntro()
+    this._lastIntro = null
+
+    // Scene-anchored HUD (NOT head-locked): fixed anchor in front of the
+    // player at playspace origin — placed once, never follows the camera.
+    // updateMatrix MUST run before lookAt: matrixAutoUpdate is off, so lookAt
+    // would otherwise read a stale identity matrixWorld and orient the whole
+    // group skyward (all panels edge-on = invisible)
+    this.group.position.set(0, 1.5, -1.8)
+    this.group.updateMatrix()
+    this.group.lookAt(0, 1.5, 0)
+    this.group.updateMatrix()
+    this.group.updateMatrixWorld(true)
+
+    // Float above the environment: ignore depth and draw last, so scene
+    // geometry (fog walls, structures) can never occlude the UI
+    this.group.traverse((o: any) => {
+      o.renderOrder = 999
+      if (o.material) o.material.fog = false
+    })
+
+    // The HUD can be created while sitting in the VR song-select menu,
+    // where update() never runs — start in menu state with gameplay HUD hidden
+    this.hidePanels()
   }
 
   _initScore() {
@@ -125,13 +157,13 @@ export class VRHUD {
     const bgGeo = new THREE.PlaneGeometry(barW, barH)
     const bgMat = new THREE.MeshBasicMaterial({ color: 0x333344, transparent: true, opacity: 0.6, depthTest: false, depthWrite: false })
     this.energyBg = new THREE.Mesh(bgGeo, bgMat)
-    this.energyBg.position.set(0, -0.2, 0)
+    this.energyBg.position.set(0, -0.62, 0)
     this.group.add(this.energyBg)
 
     const fillGeo = new THREE.PlaneGeometry(barW, barH)
     const fillMat = new THREE.MeshBasicMaterial({ color: 0x39e0ff, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false })
     this.energyFill = new THREE.Mesh(fillGeo, fillMat)
-    this.energyFill.position.set(0, -0.2, 0.001)
+    this.energyFill.position.set(0, -0.62, 0.001)
     this.energyFill.scale.x = 0
     this.group.add(this.energyFill)
   }
@@ -141,13 +173,13 @@ export class VRHUD {
     const bgGeo = new THREE.PlaneGeometry(barW, barH)
     const bgMat = new THREE.MeshBasicMaterial({ color: 0x222233, transparent: true, opacity: 0.5, depthTest: false, depthWrite: false })
     this.progressBg = new THREE.Mesh(bgGeo, bgMat)
-    this.progressBg.position.set(0, -0.15, 0)
+    this.progressBg.position.set(0, -0.68, 0)
     this.group.add(this.progressBg)
 
     const fillGeo = new THREE.PlaneGeometry(barW, barH)
     const fillMat = new THREE.MeshBasicMaterial({ color: 0xff2bd0, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false })
     this.progressFill = new THREE.Mesh(fillGeo, fillMat)
-    this.progressFill.position.set(0, -0.15, 0.001)
+    this.progressFill.position.set(0, -0.68, 0.001)
     this.progressFill.scale.x = 0
     this.group.add(this.progressFill)
   }
@@ -239,6 +271,31 @@ export class VRHUD {
     this.songSpr = makeSprite(canvas, 0.7, 0.09)
     this.songSpr.position.set(-0.5, 0.35, 0)
     this.group.add(this.songSpr)
+  }
+
+  _initIntro() {
+    const panel = new THREE.Group()
+    const bgGeo = new THREE.PlaneGeometry(2.7, 1.55)
+    const bgMat = new THREE.MeshBasicMaterial({ color: 0x060812, transparent: true, opacity: 0.88, depthTest: false, depthWrite: false })
+    const bg = new THREE.Mesh(bgGeo, bgMat)
+    panel.add(bg)
+
+    const { canvas, ctx } = makeCanvas(1280, 720)
+    this.introCtx = ctx
+    this.introCanvas = canvas
+    const tex = new THREE.CanvasTexture(canvas)
+    tex.minFilter = THREE.LinearFilter
+    tex.magFilter = THREE.LinearFilter
+    const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false })
+    const sp = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.45), mat)
+    sp.position.z = 0.003
+    panel.add(sp)
+
+    panel.visible = false
+    this.introPanel = panel
+    this.introSp = sp
+    this.introTex = tex
+    this.group.add(panel)
   }
 
   _drawScore(score, acc) {
@@ -389,16 +446,127 @@ export class VRHUD {
   _drawPause() {
     const ctx = this.pauseCtx
     const canvas = this.pauseCanvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height)
+    const W = canvas.width, H = canvas.height
+    ctx.clearRect(0, 0, W, H)
+
+    // Card in the same style as the pause buttons: rounded, accent border
+    const m = 26, r = 44
+    ctx.beginPath()
+    ctx.moveTo(m + r, m)
+    ctx.arcTo(W - m, m, W - m, H - m, r)
+    ctx.arcTo(W - m, H - m, m, H - m, r)
+    ctx.arcTo(m, H - m, m, m, r)
+    ctx.arcTo(m, m, W - m, m, r)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(8,10,22,0.95)'
+    ctx.fill()
+    ctx.lineWidth = 6
+    ctx.strokeStyle = '#39e07f'
+    ctx.globalAlpha = 0.85
+    ctx.stroke()
+    ctx.globalAlpha = 1
 
     ctx.textAlign = 'center'
-    ctx.font = 'bold 48px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
     ctx.fillStyle = '#ffffff'
-    ctx.fillText('PAUSED', 512, 100)
+    ctx.font = 'bold 92px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillText('PAUSED', W / 2, H / 2 - 44)
 
-    ctx.font = '20px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
-    ctx.fillStyle = '#7b84ab'
-    ctx.fillText(t('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)'), 512, 180)
+    ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillStyle = '#9aa4c8'
+    ctx.fillText(t('激光指向下方按钮 · 扣扳机选择  (POINT & TRIGGER)'), W / 2, H / 2 + 58)
+  }
+
+  _drawIntro(info) {
+    const ctx = this.introCtx
+    const canvas = this.introCanvas
+    const W = canvas.width, H = canvas.height
+    ctx.clearRect(0, 0, W, H)
+
+    // Card
+    const cw = 1040, ch = 400, x0 = (W - cw) / 2, y0 = (H - ch) / 2
+    ctx.beginPath()
+    ctx.moveTo(x0 + 28, y0)
+    ctx.arcTo(x0 + cw, y0, x0 + cw, y0 + ch, 28)
+    ctx.arcTo(x0 + cw, y0 + ch, x0, y0 + ch, 28)
+    ctx.arcTo(x0, y0 + ch, x0, y0, 28)
+    ctx.arcTo(x0, y0, x0 + cw, y0, 28)
+    ctx.closePath()
+    ctx.fillStyle = 'rgba(13,17,36,0.96)'
+    ctx.fill()
+    ctx.strokeStyle = 'rgba(127,220,255,0.3)'
+    ctx.lineWidth = 3
+    ctx.stroke()
+
+    // Cover: song artwork when loaded, saber-color gradient as fallback
+    const cl = '#' + Number(info.cl ?? 0x2b7bff).toString(16).padStart(6, '0')
+    const cr = '#' + Number(info.cr ?? 0xff2bd0).toString(16).padStart(6, '0')
+    const rx = x0 + 44, ry = y0 + 60, rw = 280, rh = 280
+    ctx.beginPath()
+    ctx.moveTo(rx + 20, ry)
+    ctx.arcTo(rx + rw, ry, rx + rw, ry + rh, 20)
+    ctx.arcTo(rx + rw, ry + rh, rx, ry + rh, 20)
+    ctx.arcTo(rx, ry + rh, rx, ry, 20)
+    ctx.arcTo(rx, ry, rx + rw, ry, 20)
+    ctx.closePath()
+    if (info.bmp) {
+      ctx.save()
+      ctx.clip()
+      ctx.drawImage(info.bmp, rx, ry, rw, rh)
+      ctx.restore()
+    } else {
+      const gGrd = ctx.createLinearGradient(rx, ry, rx + rw, ry + rh)
+      gGrd.addColorStop(0, cl)
+      gGrd.addColorStop(1, cr)
+      ctx.fillStyle = gGrd
+      ctx.fill()
+    }
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)'
+    ctx.lineWidth = 2
+    ctx.stroke()
+
+    // Texts
+    const tx = x0 + 44 + rw + 48
+    ctx.textAlign = 'left'
+    ctx.fillStyle = '#ffffff'
+    ctx.font = 'bold 56px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillText(String(info.name || '').slice(0, 22), tx, y0 + 110)
+    if (info.en) {
+      ctx.fillStyle = '#7b84ab'
+      ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+      ctx.fillText(String(info.en).slice(0, 34), tx, y0 + 158)
+    }
+    ctx.fillStyle = '#9aa4c8'
+    ctx.font = '30px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillText(String(info.sub || '').slice(0, 30), tx, y0 + 210)
+
+    // Chips
+    const chips = [`${info.bpm} BPM`, `♪ ${info.notes}`]
+    let cxp = tx
+    ctx.font = 'bold 24px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    chips.forEach(c => {
+      const w = ctx.measureText(c).width + 32
+      ctx.beginPath()
+      ctx.moveTo(cxp + 14, y0 + 240)
+      ctx.lineTo(cxp + w - 14, y0 + 240)
+      ctx.arcTo(cxp + w, y0 + 240, cxp + w, y0 + 270, 14)
+      ctx.arcTo(cxp + w, y0 + 270, cxp, y0 + 270, 14)
+      ctx.arcTo(cxp, y0 + 270, cxp, y0 + 240, 14)
+      ctx.arcTo(cxp, y0 + 240, cxp + w, y0 + 240, 14)
+      ctx.closePath()
+      ctx.fillStyle = 'rgba(127,220,255,0.1)'
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(127,220,255,0.3)'
+      ctx.lineWidth = 2
+      ctx.stroke()
+      ctx.fillStyle = '#a8e6ff'
+      ctx.fillText(c, cxp + 16, y0 + 261)
+      cxp += w + 12
+    })
+
+    // Loading hint
+    ctx.fillStyle = '#ffd76e'
+    ctx.font = '26px "Rajdhani", "Avenir Next", "PingFang SC", sans-serif'
+    ctx.fillText('✦ ' + t('加载中 LOADING'), tx, y0 + 325)
   }
 
   setSongLabel(label) {
@@ -408,24 +576,27 @@ export class VRHUD {
 
   /** Force-hide overlay panels (the vrmenu branch never calls update()). */
   hidePanels() {
+    this.scoreSpr.visible = false
+    this.comboSpr.visible = false
+    this.songSpr.visible = false
+    this.energyBg.visible = false
+    this.energyFill.visible = false
+    this.progressBg.visible = false
+    this.progressFill.visible = false
     this.resultsPanel.visible = false
     this.failPanel.visible = false
     this.pausePanel.visible = false
     this.countSpr.visible = false
+    this.introPanel.visible = false
     this._lastResults = null
     this._lastFail = null
     this._lastPaused = false
+    this._lastIntro = null
   }
 
-  update(state, score, combo, acc, mult, energy, progress, countdownText, songLabel, resultsData, failData, paused) {
-    const pos = this.camera.position.clone()
-    const dir = new THREE.Vector3()
-    this.camera.getWorldDirection(dir)
-    const fwd = pos.clone().addScaledVector(dir, 2)
-    this.group.position.copy(fwd)
-    this.group.lookAt(pos)
-    this.group.updateMatrix()
-    this.group.updateMatrixWorld()
+  update(state, score, combo, acc, mult, energy, progress, countdownText, songLabel, resultsData, failData, paused, introData) {
+    // Scene-anchored: the group keeps its fixed playspace pose from the
+    // constructor — no per-frame camera following
 
     if (songLabel && songLabel !== this._songLabel) {
       this._songLabel = songLabel
@@ -473,7 +644,7 @@ export class VRHUD {
         const geo = this.energyFill.geometry
         const w = geo.parameters.width
         this.energyFill.position.x = -(w / 2) * (1 - energy)
-        this.energyFill.position.y = -0.2
+        this.energyFill.position.y = -0.62
         this.energyFill.scale.x = Math.max(0.005, energy)
         this.energyFill.material.color.set(energy < 0.3 ? 0xff3b5b : 0x39e0ff)
       }
@@ -483,7 +654,7 @@ export class VRHUD {
         const w = geo.parameters.width
         const p = Math.max(0.005, Math.min(progress, 100) / 100)
         this.progressFill.position.x = -(w / 2) * (1 - p)
-        this.progressFill.position.y = -0.15
+        this.progressFill.position.y = -0.51
         this.progressFill.scale.x = p
       }
     }
@@ -518,6 +689,17 @@ export class VRHUD {
       this.pausePanel.visible = false
     }
     this._lastPaused = isPaused
+
+    // Song intro card during the pre-roll
+    if (introData && introData !== this._lastIntro) {
+      this._lastIntro = introData
+      this._drawIntro(introData)
+      this.introTex.needsUpdate = true
+      this.introPanel.visible = true
+    } else if (!introData) {
+      this.introPanel.visible = false
+      this._lastIntro = null
+    }
   }
 
   dispose() {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, provide } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, provide } from 'vue'
 import { useGame } from './composables/useGame'
 import { browseBeatSaver, browseBeatLeader } from './audio/beatsaver'
 import { t, lang, setLang, LANGS } from './i18n'
@@ -50,6 +50,59 @@ function dismissWelcome(browse: boolean) {
   // the dismiss click doubles as the audio-unlock gesture — start the preview
   game.previewSong(selectedIdx.value)
 }
+
+// Settings popup: graphics + note speed live here instead of cluttering the
+// song detail panel
+const showSettings = ref(false)
+
+// BeatSaver map stats for the CURRENT difficulty (notes/bombs/walls/NPS).
+// Returns null for builtin songs — they don't carry per-difficulty data.
+function bsStats(s: any) {
+  if (!s || !s.id || !String(s.id).startsWith('bs_') || s.builtin) return null
+  const d = s.internal && s.internal.diffs && s.internal.diffs[s.internal.currentDiff]
+  if (!d) return null
+  const notes = (d.notes || []).filter((n: any) => n.type !== 3).length
+  const bombs = (d.notes || []).filter((n: any) => n.type === 3).length
+  const walls = (d.walls || []).filter((w: any) => w.wx == null).length
+  const dur = Math.max(1, s.duration || 180)
+  return { notes, bombs, walls, nps: (notes / dur).toFixed(1) }
+}
+
+// ===== Song list: sort + group by source (built-in vs BeatSaver) =====
+const SORTS: [string, string][] = [['default', '默认'], ['name', '名称'], ['bpm', 'BPM'], ['level', '难度']]
+const songSort = ref('default')
+const isBsSong = (s: any) => s && s.id && String(s.id).startsWith('bs_') && !s.builtin
+const groupedSongs = computed(() => {
+  void game.songListVersion.value // list mutates in place — recompute on bumps
+  const all = game.SONGS.map((s: any, idx: number) => ({ s, idx }))
+  const cmp: Record<string, (a: any, b: any) => number> = {
+    default: (a, b) => a.idx - b.idx,
+    name: (a, b) => String(t(a.s.name)).localeCompare(String(t(b.s.name)), 'zh-Hans-CN'),
+    bpm: (a, b) => Number(a.s.bpm || 0) - Number(b.s.bpm || 0),
+    level: (a, b) => Number(a.s.speed || 0) - Number(b.s.speed || 0),
+  }
+  const sort = cmp[songSort.value] || cmp.default
+  return [
+    { key: 'builtin', label: '内置歌曲 BUILT-IN', items: all.filter(x => !isBsSong(x.s)) },
+    { key: 'bs', label: '社区谱面 BEATSAVER', items: all.filter(x => isBsSong(x.s)) },
+  ]
+    .map(g => ({ ...g, items: g.items.slice().sort(sort) }))
+    .filter(g => g.items.length)
+})
+
+// Collapsible source groups (per-group toggle, session-only)
+const collapsedGroups = ref<Record<string, boolean>>({})
+function toggleGroup(key: string) {
+  game.uiClick()
+  collapsedGroups.value[key] = !collapsedGroups.value[key]
+}
+
+// Song intro card cover: the song's real artwork (cardBg carries the cover
+// url for both BeatSaver blob covers and builtin SVG covers)
+const coverStyle = computed(() => {
+  const m: any = game.SONGS[game.songIdx.value] || {}
+  return { background: m.cardBg || 'linear-gradient(135deg, #2b7bff, #ff2bd0)' }
+})
 
 function playSelected() {
   game.uiClick()
@@ -297,6 +350,43 @@ onUnmounted(() => {
     </div>
   </div>
 
+  <!-- Settings popup: graphics + note speed (shared with the VR settings panel) -->
+  <div v-if="showSettings" class="settings-mask" @click.self="showSettings = false">
+    <div class="settings-card">
+      <div class="settings-head">
+        <span class="settings-title">⚙ {{ t('设置 SETTINGS') }}</span>
+        <span class="settings-close" @click="game.uiClick(); showSettings = false" @mouseenter="game.uiHover()">×</span>
+      </div>
+      <div class="settings-body">
+        <div class="quality-line">
+          <span class="q-label">{{ t('画质 GRAPHICS') }}</span>
+          <button
+            v-for="q in [['high','高'],['medium','中'],['low','低']]"
+            :key="q[0]"
+            class="q-pill"
+            :class="{ on: game.quality.value === q[0] }"
+            @click="game.setQuality(q[0])"
+            @mouseenter="game.uiHover()"
+          >{{ t(q[1]) }}</button>
+        </div>
+        <div class="quality-line">
+          <span class="q-label">{{ t('流速 SPEED') }}</span>
+          <input
+            class="speed-range"
+            type="range"
+            min="0.5"
+            max="3"
+            step="0.25"
+            :value="game.speedMul.value"
+            @input="game.setSpeedMul(parseFloat($event.target.value))"
+            @change="game.uiClick()"
+          />
+          <span class="speed-val">{{ game.speedMul.value }}x</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Local song loading toast (official-style notification) -->
   <div v-if="game.localLoad.value.active" id="load-toast">
     <div class="lt-spinner"></div>
@@ -353,29 +443,63 @@ onUnmounted(() => {
         <div class="logo-text"><span class="logo-beat">BEAT</span><span class="logo-saber">SABER</span></div>
       </div>
 
-      <div id="song-list" :key="game.songListVersion.value">
-        <div
-          v-for="(song, i) in game.SONGS"
-          :key="i"
-          class="song-row"
-          :class="{ sel: i === selectedIdx }"
-          @click="selectSong(i)"
+      <!-- Sort toolbar -->
+      <div id="list-toolbar">
+        <span class="lt-label">{{ t('排序 SORT') }}</span>
+        <button
+          v-for="[k, lb] in SORTS"
+          :key="k"
+          class="sort-pill"
+          :class="{ on: songSort === k }"
+          @click="game.uiClick(); songSort = k"
           @mouseenter="game.uiHover()"
-        >
-          <div class="row-cover" :style="{ background: song.cardBg }"></div>
-          <div class="row-info">
-            <div class="row-name">{{ t(song.name) }}</div>
-            <div class="row-sub">{{ t(song.en) === t(song.name) ? t(song.style) : t(song.en) }} · {{ t(song.diff) }}</div>
-          </div>
-          <div class="row-bpm">{{ song.bpm }}<span> BPM</span></div>
-          <div
-            v-if="song.id && song.id.startsWith('bs_') && !song.builtin"
-            class="song-delete"
-            @click.stop="game.uiClick(); delRow(i)"
-            title="Delete map"
-          >×</div>
-        </div>
+        >{{ t(lb) }}</button>
       </div>
+
+      <div id="song-list" :key="game.songListVersion.value">
+        <template v-for="g in groupedSongs" :key="g.key">
+          <div
+            class="list-group-label"
+            :class="{ folded: collapsedGroups[g.key] }"
+            @click="toggleGroup(g.key)"
+            @mouseenter="game.uiHover()"
+          >
+            <span class="lg-caret">{{ collapsedGroups[g.key] ? '▸' : '▾' }}</span>
+            {{ t(g.label) }}
+            <span class="lg-count">{{ g.items.length }}</span>
+          </div>
+          <template v-if="!collapsedGroups[g.key]">
+          <div
+            v-for="{ s: song, idx: i } in g.items"
+            :key="i"
+            class="song-row"
+            :class="{ sel: i === selectedIdx }"
+            @click="selectSong(i)"
+            @mouseenter="game.uiHover()"
+          >
+            <div class="row-cover" :style="{ background: song.cardBg }"></div>
+            <div class="row-info">
+              <div class="row-name">{{ t(song.name) }}</div>
+              <div class="row-sub">{{ t(song.en) === t(song.name) ? t(song.style) : t(song.en) }} · {{ t(song.diff) }}</div>
+            </div>
+            <div class="row-bpm">{{ song.bpm }}<span> BPM</span></div>
+            <div
+              v-if="song.id && song.id.startsWith('bs_') && !song.builtin"
+              class="song-delete"
+              @click.stop="game.uiClick(); delRow(i)"
+              title="Delete map"
+            >×</div>
+          </div>
+          </template>
+        </template>
+      </div>
+
+      <!-- Pinned sidebar footer: BeatSaver entry (same layout as the VR list) -->
+      <button
+        id="bs-sidebar-btn"
+        @click="game.uiClick(); bsShowSearch = true"
+        @mouseenter="game.uiHover()"
+      >{{ t('BEATSAVER · 社区谱面搜索') }}</button>
     </aside>
 
     <!-- Right: song detail -->
@@ -390,6 +514,17 @@ onUnmounted(() => {
             <span class="chip chip-diff">{{ t(game.SONGS[selectedIdx].diff) }}</span>
             <span class="chip">{{ t(game.SONGS[selectedIdx].style) }}</span>
             <span class="chip chip-desc">{{ t(game.SONGS[selectedIdx].desc || '').replace('谱师', t('谱师')).replace('未知', t('未知')) }}</span>
+          </div>
+          <!-- BeatSaver maps: per-difficulty note stats (reactive via songListVersion) -->
+          <div
+            v-if="bsStats(game.SONGS[selectedIdx])"
+            class="detail-stats"
+            :key="'st' + game.songListVersion.value"
+          >
+            <span class="stat"><b>{{ bsStats(game.SONGS[selectedIdx]).notes }}</b>{{ t('音符') }}</span>
+            <span class="stat"><b>{{ bsStats(game.SONGS[selectedIdx]).bombs }}</b>{{ t('炸弹') }}</span>
+            <span class="stat"><b>{{ bsStats(game.SONGS[selectedIdx]).walls }}</b>{{ t('墙') }}</span>
+            <span class="stat"><b>{{ bsStats(game.SONGS[selectedIdx]).nps }}</b>{{ t('密度') }}</span>
           </div>
           <div class="quality-line" v-if="game.SONGS[selectedIdx].diffList && game.SONGS[selectedIdx].diffList.length > 1" :key="'d' + game.songListVersion.value">
             <span class="q-label">难度 DIFFICULTY</span>
@@ -446,17 +581,11 @@ onUnmounted(() => {
           <span class="sw"></span>
           {{ t('体感模式 · 摄像头食指控剑') }}{{ game.handStatus.value ? ' — ' + t(game.handStatus.value) : '' }}
         </div>
-        <div class="quality-line">
-          <span class="q-label">{{ t('画质 GRAPHICS') }}</span>
-          <button
-            v-for="q in [['high','高'],['medium','中'],['low','低']]"
-            :key="q[0]"
-            class="q-pill"
-            :class="{ on: game.quality.value === q[0] }"
-            @click="game.setQuality(q[0])"
-            @mouseenter="game.uiHover()"
-          >{{ t(q[1]) }}</button>
-        </div>
+        <div
+          class="settings-open-btn"
+          @click="game.uiClick(); showSettings = true"
+          @mouseenter="game.uiHover()"
+        >⚙ {{ t('设置 SETTINGS') }}</div>
       </div>
 
       <div class="detail-actions">
@@ -489,13 +618,6 @@ onUnmounted(() => {
           @mouseenter="game.uiHover()"
         >
           {{ t('删除此谱面 · DELETE') }}
-        </div>
-        <div
-          class="vr-btn bs-open-btn"
-          @click="game.uiClick(); bsShowSearch = true"
-          @mouseenter="game.uiHover()"
-        >
-          {{ t('BEATSAVER · 社区谱面搜索') }}
         </div>
       </div>
       <input ref="fileInput" type="file" accept="audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac" style="display:none" @change="onFileSelect" />
@@ -654,7 +776,25 @@ onUnmounted(() => {
 
   <!-- ============ COUNTDOWN ============ -->
   <div id="countdown" class="overlay" :class="{ hidden: !game.countdownVisible.value }">
-    <div id="count-num">{{ game.countdownNum.value }}</div>
+    <!-- key forces a fresh element per number so the countPop animation replays -->
+    <div id="count-num" :key="game.countdownNum.value">{{ game.countdownNum.value }}</div>
+  </div>
+
+  <!-- ============ SONG INTRO (menu → game transition) ============ -->
+  <div v-if="game.songIntroVisible.value && game.songIntro.value" id="song-intro">
+    <div class="si-card">
+      <div class="si-cover" :style="coverStyle"></div>
+      <div class="si-info">
+        <div class="si-name">{{ game.songIntro.value.name }}</div>
+        <div v-if="game.songIntro.value.en" class="si-en">{{ game.songIntro.value.en }}</div>
+        <div class="si-sub">{{ game.songIntro.value.sub }}</div>
+        <div class="si-chips">
+          <span class="si-chip">{{ game.songIntro.value.bpm }} BPM</span>
+          <span class="si-chip">♪ {{ game.songIntro.value.notes }}</span>
+          <span class="si-chip si-loading">✦ {{ t('加载中 LOADING') }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ============ PAUSE ============ -->

@@ -16,7 +16,7 @@ import { VRHUD } from '../game/vrHUD'
 import { createNoteMesh, createWallMesh, createHalves, createBurst, releaseBurst, createFloatingText, createArcMesh, setGeometries } from '../game/Note'
 import { createEnv } from '../env/index'
 import { log, dumpLog, startLog } from './vrlog'
-import { t, lang } from '../i18n'
+import { t, lang, setLang, LANGS } from '../i18n'
 import {
   LANE_X, ROW_Y, SABER_Z, SPAWN_DIST, MISS_Z,
   CUT_WINDOW, CUT_RADIUS, MIN_SPEED, DIR_VEC, NEED, MULT, RING_C,
@@ -52,6 +52,10 @@ export function useGame() {
   const failSub = ref('')
   const countdownNum = ref('')
   const countdownVisible = ref(false)
+  // Song intro transition (menu → game): shows song info card during the first
+  // ~2.4s of the pre-roll, on both the desktop overlay and a VR scene panel
+  const songIntroVisible = ref(false)
+  const songIntro = ref<any>(null)
   const xrSupported = ref(false)
   const xrActive = ref(false)
   const downloadProgress = ref({ stage: '', pct: 0 })
@@ -67,6 +71,8 @@ export function useGame() {
   })
 
   const quality = ref(localStorage.getItem('bs_quality') || 'high')
+  // 流速倍率（音游常见的 scroll speed）：乘在谱面自身 NJS 之上，0.5x–3x，本地持久化
+  const speedMul = ref(Math.min(3, Math.max(0.5, parseFloat(localStorage.getItem('bs_speed_mul') || '1') || 1)))
 
   // ========== Three.js Core ==========
   let renderer, scene, camera, composer, clock
@@ -583,6 +589,15 @@ export function useGame() {
 
   function spawnWall(w, speed) {
     const { m, len } = createWallMesh(w, speed, G.hitZ)
+    // Walls float above the environment too, just under the notes
+    m.traverse((o: any) => {
+      if ((o.isMesh || o.isSprite) && o.material) {
+        o.renderOrder = 890
+        o.material.depthTest = false
+        o.material.transparent = true
+        o.material.fog = false
+      }
+    })
     scene.add(m)
     const rec: any = { w, m, len }
     if (w.track || w.anim) {
@@ -595,7 +610,7 @@ export function useGame() {
 
   function spawnArc(a) {
     const color = a.c === 0 ? meta.value.colorL : meta.value.colorR
-    const m = createArcMesh(a, meta.value.speed, color)
+    const m = createArcMesh(a, meta.value.speed * speedMul.value, color)
     m.position.z = G.hitZ - SPAWN_DIST
     scene.add(m)
     G.arcs.push({ a, m })
@@ -715,7 +730,7 @@ export function useGame() {
     setTimeout(() => { haptic(hand, i2, d2) }, d1)
   }
 
-  function goodCut(note, saber, dist) {
+  function goodCut(note, saber, dist, angleOverride?) {
     const sp = saber.speed
     const pts = Math.round(70 + Math.min(30, sp * 3.4) + Math.max(0, 1 - dist / CUT_RADIUS) * 15)
     G.score += pts * MULT[G.level]
@@ -723,7 +738,9 @@ export function useGame() {
     G.hits++
     addCombo()
     addEnergy(0.012)
-    const angle = Math.atan2(saber.vel.y, saber.vel.x)
+    // Demo mode passes an explicit angle (the block's baked direction) so the
+    // slice always matches the arrow even when the swing spring lags
+    const angle = angleOverride != null ? angleOverride : Math.atan2(saber.vel.y, saber.vel.x)
     const noteCol = note.d.type === 0 ? meta.value.colorL : meta.value.colorR
     G.halves.push(...createHalves(note, angle, sp, true, noteCol, textures, hotTexGeo))
     G.halves.forEach(h => scene.add(h.m))
@@ -856,6 +873,10 @@ export function useGame() {
   }
 
   // ========== Auto aim ==========
+  // Per-hand dot-note swing state: alternate up/down cuts so dot streams read
+  // as lively pumping (official demo style) instead of a metronome
+  const _dotSwing: Record<string, { up: boolean, last: any }> = {}
+
   function autoAim(saber, t) {
     const type = saber.hand === 'L' ? 0 : 1
     // Earliest still-hittable note of this color. Skipping long-past notes is
@@ -870,38 +891,50 @@ export function useGame() {
       // Idle: relaxed bobbing at the side
       const ix = saber.hand === 'L' ? -0.55 : 0.55
       const ph = type ? 1.7 : 0
-      return { x: ix + Math.sin(t * 1.3 + ph) * 0.14, y: 1.15 + Math.sin(t * 1.8 + ph) * 0.09, k: 14 }
+      return { x: ix + Math.sin(t * 1.3 + ph) * 0.14, y: 1.15 + Math.sin(t * 1.8 + ph) * 0.09, k: 14, z: G.hitZ }
     }
-    // Same-beat partner (doubles): one swing must pass through both
+    // Same-beat partner (doubles & tight double-taps): one swing passes through both
     let partner = null
     for (const n of G.notes) {
       if (n === target || n.cut || n.missed || n.d.type !== type || n.d.ghost || n.d.link) continue
-      if (Math.abs(n.d.t - target.d.t) < 0.09) { partner = n; break }
+      if (Math.abs(n.d.t - target.d.t) < 0.12) { partner = n; break }
     }
     // Live mesh position (accounts for noodle animation), not the static lane
     const ax = target.g.position.x, ay = target.g.position.y
-    const dv = DIR_VEC[target.d.dir === 8 ? 1 : target.d.dir]
+    // Dot notes have no baked cut direction — pick alternating up/down per note
+    let dirId = target.d.dir
+    if (dirId === 8) {
+      const st = _dotSwing[saber.hand] || (_dotSwing[saber.hand] = { up: false, last: null })
+      if (st.last !== target) { st.last = target; st.up = !st.up }
+      dirId = st.up ? 0 : 1
+      target.d._autoDir = dirId // the cut net reads this to slice along the chosen direction
+    }
+    const dv = DIR_VEC[dirId === 8 ? 1 : dirId]
     const mirror = saber.hand === 'L' ? 1 : -1
     const px = -dv[1] * mirror, py = dv[0] * mirror // perpendicular: curved raise, like a wrist arc
     const left = target.d.t - t
-    if (left > 0.07) {
+    if (left > 0.085) {
       // Windup: hover behind the entry point, pulling further back as the hit
-      // approaches (anticipation), along a slight arc instead of a straight line
+      // approaches (anticipation), along a slight arc instead of a straight line;
+      // also sink toward the camera a touch for swing depth. Stiffness ramps up
+      // so the blade reliably reaches the correct side even in dense streams.
       const pull = Math.max(0, Math.min(1, (0.45 - left) / 0.38))
       return {
         x: ax - dv[0] * (0.5 + 0.3 * pull) + px * 0.32 * (1 - pull),
         y: ay - dv[1] * (0.5 + 0.3 * pull) + py * 0.32 * (1 - pull),
-        k: 20,
+        k: 22 + 18 * pull,
+        z: G.hitZ - 0.14,
       }
     }
     // Swing: snap through the note with follow-through; extend through the
-    // double partner so the blade segment covers both
+    // double partner so the blade segment covers both; push forward through
+    // the strike for a 3D stroke
     let ex = ax + dv[0] * 1.0, ey = ay + dv[1] * 1.0
     if (partner) {
       ex = partner.g.position.x + dv[0] * 0.9
       ey = partner.g.position.y + dv[1] * 0.9
     }
-    return { x: ex, y: ey, k: 55 }
+    return { x: ex, y: ey, k: 55, z: G.hitZ + 0.06 }
   }
 
   // ========== Flow ==========
@@ -943,6 +976,11 @@ export function useGame() {
     saberR = new Saber('R', meta.value.colorR, meta.value.env, textures)
     saberL.addToScene(scene)
     saberR.addToScene(scene)
+    // Layering: scene < HUD(999) < sabers(1000) — saber glow always reads
+    // above the HUD text
+    for (const sb of [saberL, saberR]) {
+      sb.group.traverse((o: any) => { if (o.isMesh) o.renderOrder = 1000 })
+    }
     if (auto.value) {
       saberL.pos.z = saberR.pos.z = G.hitZ
     } else if (XR.active) {
@@ -1003,13 +1041,25 @@ export function useGame() {
 
     songLabel.value = `《${t(meta.value.name)}》 · ${t(meta.value.style)} · ${meta.value.bpm} BPM${auto.value ? ' · ' + t('纯享演示') : ''}`
 
+    songIntro.value = {
+      name: t(meta.value.name),
+      en: meta.value.en && meta.value.en !== meta.value.name ? meta.value.en : '',
+      sub: [t(meta.value.style || ''), String(meta.value.diff || '')].filter(Boolean).join(' · '),
+      bpm: meta.value.bpm,
+      notes: G.totalNotes,
+      cl: meta.value.colorL,
+      cr: meta.value.colorR,
+      bmp: _vrCover(SONGS[idx]) || null,
+    }
+    songIntroVisible.value = true
+
     countdownVisible.value = true
     countdownNum.value = ''
 
     player.load(G.song.events)
     const rawBuf = G.song.buffer
     if (rawBuf && (rawBuf instanceof Uint8Array || (rawBuf instanceof ArrayBuffer && !(rawBuf as any).sampleRate))) {
-      G.startAt = synth.ctx.currentTime + 3.6
+      G.startAt = synth.ctx.currentTime + 6.0
       const ab = rawBuf instanceof Uint8Array ? rawBuf.buffer.slice(rawBuf.byteOffset, rawBuf.byteOffset + rawBuf.byteLength) : rawBuf
       const cached = (SONGS[idx] as any)._previewBuf
       if (cached) {
@@ -1033,7 +1083,7 @@ export function useGame() {
       }
     } else {
       if (rawBuf) player.loadBuffer(rawBuf)
-      G.startAt = synth.ctx.currentTime + 3.6
+      G.startAt = synth.ctx.currentTime + 6.0
       player.start(G.startAt)
     }
     state.value = 'playing'
@@ -1058,6 +1108,7 @@ export function useGame() {
     if (saberL) { saberL.dispose(); saberL = null }
     if (saberR) { saberR.dispose(); saberR = null }
     countdownVisible.value = false
+    songIntroVisible.value = false
     _vrPlayingDebugged = false
     _vrPollLogged = false
     _vrPollNoUpdate = false
@@ -1178,6 +1229,12 @@ export function useGame() {
     renderer?.setSize(window.innerWidth, window.innerHeight)
     rebuildComposer()
     if (synth) synth.sfxClick()
+  }
+
+  function setSpeedMul(v: number) {
+    if (!isFinite(v)) return
+    speedMul.value = Math.min(3, Math.max(0.5, v))
+    localStorage.setItem('bs_speed_mul', String(speedMul.value))
   }
 
   // Ambient official stage behind the desktop menu (official colors, slow lasers)
@@ -1512,6 +1569,9 @@ export function useGame() {
       if (isNaN(G.t) || !isFinite(G.t)) return
       const t = G.t
 
+      // Song intro overlay lives in the first ~2.4s of the pre-roll
+      if (songIntroVisible.value && t >= -3.5) songIntroVisible.value = false
+
       // Countdown
       if (t < 0.6) {
         const n = Math.ceil(-t - 0.15)
@@ -1542,7 +1602,8 @@ export function useGame() {
       }
 
       // Spawn
-      const ahead = SPAWN_DIST / meta.value.speed
+      const nsp = meta.value.speed * speedMul.value
+      const ahead = SPAWN_DIST / nsp
       const ns = G.song.notes
       const mats = { matL, matR, bombMat, textures, colored: coloredMat }
       while (G.noteIdx < ns.length && ns[G.noteIdx].t - t < ahead) spawnNote(ns[G.noteIdx++], mats)
@@ -1552,7 +1613,7 @@ export function useGame() {
         log('note-spawn', { total: ns.length, spawned: G.noteIdx, firstT: ns[0]?.t?.toFixed(2), ahead: ahead.toFixed(1), t: t.toFixed(2) })
       }
       const ws = G.song.walls
-      while (G.wallIdx < ws.length && ws[G.wallIdx].t - t < ahead) spawnWall(ws[G.wallIdx++], meta.value.speed)
+      while (G.wallIdx < ws.length && ws[G.wallIdx].t - t < ahead) spawnWall(ws[G.wallIdx++], nsp)
       const as = G.song.arcs
       if (as) while (G.arcIdx < as.length && as[G.arcIdx].t - t < ahead) spawnArc(as[G.arcIdx++])
 
@@ -1582,14 +1643,21 @@ export function useGame() {
           const saber = n.d.type === 0 ? saberL : saberR
           if (n.d.link) { goodLink(n, saber); continue }
           const d = distToSeg(n.g.position.x, n.g.position.y, saber.prev.x, saber.prev.y, saber.pos.x, saber.pos.y)
-          if (d < 4.5) goodCut(n, saber, Math.min(d, 0.08))
+          if (d < 4.5) {
+            // Cut VISUAL locks to the block's baked direction (dots use the
+            // alternating direction autoAim picked) — on dense maps the swing
+            // spring may approach from a lazy angle, but the slice plane must
+            // always read as "cut along the arrow"
+            const dv = DIR_VEC[n.d._autoDir != null ? n.d._autoDir : (n.d.dir === 8 ? 1 : n.d.dir)]
+            goodCut(n, saber, Math.min(d, 0.08), Math.atan2(dv[1], dv[0]))
+          }
         }
       }
 
       // Move notes
       for (let i = G.notes.length - 1; i >= 0; i--) {
         const n = G.notes[i]
-        const z = G.hitZ + (t - n.d.t) * meta.value.speed
+        const z = G.hitZ + (t - n.d.t) * nsp
         n.g.position.z = z
         if (n.noodle) {
           const lifeP = Math.max(0, Math.min(1, (z - (G.hitZ - SPAWN_DIST)) / (2 * SPAWN_DIST)))
@@ -1622,8 +1690,8 @@ export function useGame() {
       // Arcs travel with the conveyor; drop them once the tail passes the player
       for (let i = G.arcs.length - 1; i >= 0; i--) {
         const o = G.arcs[i]
-        o.m.position.z = G.hitZ + (t - o.a.t) * meta.value.speed
-        if (G.hitZ + (t - o.a.tb) * meta.value.speed > 2.5) {
+        o.m.position.z = G.hitZ + (t - o.a.t) * nsp
+        if (G.hitZ + (t - o.a.tb) * nsp > 2.5) {
           scene.remove(o.m)
           o.m.geometry.dispose()
           o.m.material.dispose()
@@ -1635,7 +1703,7 @@ export function useGame() {
       const headX = camera.position.x, headZ = XR.active ? camera.position.z : 0
       for (let i = G.walls.length - 1; i >= 0; i--) {
         const o = G.walls[i]
-        const frontZ = G.hitZ + (t - o.w.t) * meta.value.speed
+        const frontZ = G.hitZ + (t - o.w.t) * nsp
         o.m.position.z = frontZ - o.len / 2
         if (o.noodle) {
           const lifeP = Math.max(0, Math.min(1, (frontZ - (G.hitZ - SPAWN_DIST)) / (2 * SPAWN_DIST)))
@@ -1654,6 +1722,11 @@ export function useGame() {
       // Sabers
       if (auto.value) {
         const ta = autoAim(saberL, t), tb = autoAim(saberR, t)
+        // Z-pump: sink on windup, push through the strike — gives the trail
+        // real depth instead of a flat 2D drawing (spring only smooths x/y)
+        const zk = 1 - Math.exp(-dt * 12)
+        saberL.pos.z += (ta.z - saberL.pos.z) * zk
+        saberR.pos.z += (tb.z - saberR.pos.z) * zk
         saberL.update(dt, ta.x, ta.y, ta.k, G.camOff)
         saberR.update(dt, tb.x, tb.y, tb.k, G.camOff)
       } else if (XR.active && XR.useHands) {
@@ -1702,7 +1775,7 @@ export function useGame() {
       if (!XR.active) {
         G.leanTarget = 0
         for (const o of G.walls) {
-          const frontZ = G.hitZ + (t - o.w.t) * meta.value.speed
+          const frontZ = G.hitZ + (t - o.w.t) * nsp
           if (o.w.wx != null) continue // decorative noodle wall: no dodge
           if (frontZ > -14 && frontZ - o.len < 1) { G.leanTarget = -o.w.side * 0.85; break }
         }
@@ -1828,6 +1901,7 @@ export function useGame() {
           score: Math.round(G.score || 0).toLocaleString(),
         } : null,
         state.value === 'paused',
+        _vrIntroData(),
       )
     }
     if (composer && !XR.active) composer.render()
@@ -1912,10 +1986,10 @@ export function useGame() {
 
   function _createVRSaberMesh(color) {
     const g = new THREE.Group()
-    const handleGeo = new THREE.CylinderGeometry(0.034, 0.04, 0.3, 16)
+    const handleGeo = new THREE.CylinderGeometry(0.027, 0.032, 0.3, 16)
     const handle = new THREE.Mesh(handleGeo, new THREE.MeshLambertMaterial({ color: 0x181820 }))
     g.add(handle)
-    ;[[0.145, 0.045], [-0.13, 0.042]].forEach(([y, r]) => {
+    ;[[0.145, 0.036], [-0.13, 0.033]].forEach(([y, r]) => {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(r, 0.009, 8, 24),
         new THREE.MeshBasicMaterial({ color }),
@@ -1927,19 +2001,19 @@ export function useGame() {
     const BL = 1.05
     const by = 0.15 + BL / 2
     const core = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.016, 0.016, BL, 8),
+      new THREE.CylinderGeometry(0.011, 0.011, BL, 8),
       new THREE.MeshBasicMaterial({ color: 0xffffff }),
     )
     core.position.y = by
     g.add(core)
     const glow1 = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, BL * 1.01, 8),
+      new THREE.CylinderGeometry(0.034, 0.034, BL * 1.01, 8),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }),
     )
     glow1.position.y = by
     g.add(glow1)
     const glow2 = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.11, 0.11, BL * 1.03, 8),
+      new THREE.CylinderGeometry(0.075, 0.075, BL * 1.03, 8),
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false }),
     )
     glow2.position.y = by
@@ -1958,6 +2032,16 @@ export function useGame() {
     g.add(light)
     g.position.set(0, 0, -0.03)
     g.rotation.set(-Math.PI / 2, 0, 0)
+    // Float above the environment: menu sabers must not be occluded by
+    // scene structures passing between the headset and the controllers
+    g.traverse((o: any) => {
+      if (o.isLight) return
+      o.renderOrder = 999
+      if (o.material) {
+        o.material.depthTest = false
+        o.material.fog = false
+      }
+    })
     return g
   }
 
@@ -2024,14 +2108,26 @@ export function useGame() {
   // ===== Desktop-style VR song select: list panel (thumbstick scroll) + detail panel =====
   let vrListPanel: any = null
   let vrDetailPanel: any = null
+  // Pinned BEATSAVER entry — a standalone 3D button hanging below the list panel
+  let vrBsBtn: any = null
+  let _vrBsDirty = true
+  // Settings panel swaps in for the detail panel (⚙ on the detail panel opens it)
+  let vrSettingsPanel: any = null
+  let _vrSettingsOpen = false
+  let _vrLangOpen = false // language dropdown submenu (like the desktop one)
   let vrSelIdx = 0
   let _vrListScroll = 0
   let _vrListMode: 'songs' | 'browse' | 'cats' = 'songs'
   let _vrBrowseList: any[] = []
   let _vrBrowseLabel = ''
   let _vrBrowseSort: 'Rating' | 'Latest' = 'Rating'
+  let _vrBrowseFetcher: ((page: number) => Promise<any[]>) | null = null
+  let _vrBrowsePage = 0
+  let _vrBrowseNoMore = false
+  let _vrLoadingMore = false
   let _vrListDirty = true
   let _vrDetailDirty = true
+  let _vrSettingsDirty = true
   let _vrHoverKey = ''
   let _vrHoverRegion: any = null
 
@@ -2069,6 +2165,33 @@ export function useGame() {
     return null
   }
 
+  // BeatSaver browse results carry a remote coverUrl (not cardBg) — load with
+  // CORS so the canvas stays untainted; graceful fallback to the gradient
+  function _vrBrowseCover(item: any) {
+    if (!item || item._vrBmp !== undefined) return item?._vrBmp || null
+    item._vrBmp = null
+    const url = item.coverUrl || item.versions?.[0]?.coverURL
+    if (url) {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => {
+        item._vrBmp = img
+        _vrListDirty = true
+      }
+      img.src = url
+    }
+    return null
+  }
+
+  // Intro data for the VR opening panel — attach the cover bitmap once it
+  // finishes loading (new object identity → VRHUD redraws the panel)
+  function _vrIntroData() {
+    if (!songIntroVisible.value || !songIntro.value) return null
+    const bmp = _vrCover(SONGS[songIdx.value] || {})
+    if (bmp && bmp !== songIntro.value.bmp) songIntro.value = { ...songIntro.value, bmp }
+    return songIntro.value
+  }
+
   function _makeUIPanel(wM: number, hM: number, pxW: number, pxH: number) {
     const canvas = document.createElement('canvas')
     canvas.width = pxW; canvas.height = pxH
@@ -2076,14 +2199,18 @@ export function useGame() {
     const tex = new THREE.CanvasTexture(canvas)
     const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(wM, hM),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+      // depthTest off + high renderOrder: the menu UI must float ABOVE the
+      // environment — scene structures passing between the player and the
+      // panels would otherwise occlude them
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide }),
     )
+    mesh.renderOrder = 999
     mesh.userData = { canvas, ctx, tex, regions: [] as any[] }
     return mesh
   }
 
   function _destroyVRPanels() {
-    for (const p of [vrListPanel, vrDetailPanel]) {
+    for (const p of [vrListPanel, vrDetailPanel, vrSettingsPanel, vrBsBtn]) {
       if (!p) continue
       if (p.parent) p.parent.remove(p)
       p.geometry.dispose()
@@ -2092,6 +2219,10 @@ export function useGame() {
     }
     vrListPanel = null
     vrDetailPanel = null
+    vrSettingsPanel = null
+    vrBsBtn = null
+    _vrSettingsOpen = false
+    _vrLangOpen = false
     _vrHoverKey = ''
     _vrHoverRegion = null
   }
@@ -2106,13 +2237,65 @@ export function useGame() {
     vrDetailPanel.position.set(0.92, 0.02, 0)
     vrDetailPanel.rotation.y = -0.22
     vrMenuOrigin.add(vrDetailPanel)
+    // Settings occupy the detail panel's slot while open
+    vrSettingsPanel = _makeUIPanel(1.5, 1.35, 720, 648)
+    vrSettingsPanel.position.set(0.92, 0.02, 0)
+    vrSettingsPanel.rotation.y = -0.22
+    vrSettingsPanel.visible = false
+    vrMenuOrigin.add(vrSettingsPanel)
+    // Pinned BEATSAVER entry below the song list panel (same tilt)
+    vrBsBtn = _makeUIPanel(1.35, 0.17, 640, 80)
+    vrBsBtn.position.set(-0.82, -0.08 - 1.85 / 2 - 0.06 - 0.085, 0)
+    vrBsBtn.rotation.y = 0.22
+    vrMenuOrigin.add(vrBsBtn)
     _vrListDirty = true
     _vrDetailDirty = true
+    _vrSettingsDirty = true
+    _vrBsDirty = true
   }
 
   const LIST_HEAD = 84
   const LIST_FOOT = 68
   const LIST_ROW = 96
+  const LIST_GROW = 48 // group header row height
+
+  // Sort options for the VR song list (cycles via the header button)
+  const _VR_SORTS: Record<string, string> = { default: '默认', name: '名称', bpm: 'BPM', level: '难度' }
+  let _vrSort = 'default'
+  const _vrCollapsed: Record<string, boolean> = {}
+  const _isBsSong = (s: any) => s && s.id && String(s.id).startsWith('bs_') && !(s as any).builtin
+
+  // Display rows for the songs list: group headers + sorted song entries
+  // (gi = original SONGS index so selection/preview keep working)
+  function _vrDisplayRows(): any[] {
+    const all = (SONGS as any[]).map((s, gi) => ({ s, gi }))
+    const cmp: Record<string, (a: any, b: any) => number> = {
+      default: (a, b) => a.gi - b.gi,
+      name: (a, b) => String(t(a.s.name)).localeCompare(String(t(b.s.name)), 'zh-Hans-CN'),
+      bpm: (a, b) => Number(a.s.bpm || 0) - Number(b.s.bpm || 0),
+      level: (a, b) => Number(a.s.speed || 0) - Number(b.s.speed || 0),
+    }
+    const sort = cmp[_vrSort] || cmp.default
+    const rows: any[] = []
+    for (const [gk, gl] of [['builtin', '内置歌曲 BUILT-IN'], ['bs', '社区谱面 BEATSAVER']] as [string, string][]) {
+      const items = all.filter(x => (gk === 'bs' ? _isBsSong(x.s) : !_isBsSong(x.s)))
+      if (!items.length) continue
+      rows.push({ kind: 'group', label: `${t(gl)} · ${items.length}`, key: gk, collapsed: !!_vrCollapsed[gk] })
+      if (_vrCollapsed[gk]) continue
+      for (const x of items.slice().sort(sort)) rows.push({ kind: 'song', s: x.s, gi: x.gi, browse: false })
+    }
+    return rows
+  }
+
+  // Scroll so the selected song's row is in view (variable row heights)
+  function _vrScrollToSelected() {
+    const rows = _vrDisplayRows()
+    const pos = rows.findIndex(r => r.kind === 'song' && !r.browse && r.gi === vrSelIdx)
+    if (pos < 0) { _vrListScroll = 0; return }
+    let off = 0
+    for (let i = 0; i < pos; i++) off += rows[i].kind === 'group' ? LIST_GROW : LIST_ROW
+    _vrListScroll = Math.max(0, off - 316)
+  }
 
   function _drawVRList() {
     const { canvas, ctx: g, tex, regions } = vrListPanel.userData
@@ -2145,32 +2328,70 @@ export function useGame() {
       g.fillText(t('← 返回'), W - bw / 2 - 20, LIST_HEAD / 2)
       regions.push({ x: W - bw - 20, y: 18, w: bw, h: LIST_HEAD - 36, key: 'back', act: () => vrBrowserCats() })
     } else {
+      // Sort cycling button (right) + song count (left of it)
+      const sw = 150
+      _rr(g, W - sw - 24, 20, sw, LIST_HEAD - 40, 22)
+      g.fillStyle = _vrHoverKey === 'list:vsort' ? 'rgba(127,220,255,0.4)' : 'rgba(127,220,255,0.12)'
+      g.fill()
+      g.fillStyle = '#a8e6ff'
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(_fitText(g, `↕ ${t(_VR_SORTS[_vrSort] || '默认')}`, sw - 14), W - sw / 2 - 24, LIST_HEAD / 2)
+      regions.push({ x: W - sw - 24, y: 20, w: sw, h: LIST_HEAD - 40, key: 'vsort', act: () => {
+        const keys = Object.keys(_VR_SORTS)
+        _vrSort = keys[(keys.indexOf(_vrSort) + 1) % keys.length]
+        _vrListDirty = true
+        _vrScrollToSelected()
+      } })
       g.fillStyle = '#7d88ad'
       g.font = '22px "Rajdhani", "PingFang SC", sans-serif'
       g.textAlign = 'right'
-      g.fillText(`${SONGS.length} ${t('首')}`, W - 24, LIST_HEAD / 2)
+      g.fillText(`${SONGS.length} ${t('首')}`, W - sw - 40, LIST_HEAD / 2)
     }
     g.strokeStyle = 'rgba(127,220,255,0.18)'
     g.beginPath(); g.moveTo(16, LIST_HEAD); g.lineTo(W - 16, LIST_HEAD); g.stroke()
 
-    // Rows (clipped viewport, thumbstick scroll offset)
-    const items: any[] = browse ? _vrBrowseList : (SONGS as any[])
+    // Rows (clipped viewport, thumbstick scroll offset; grouped by source)
+    const rows: any[] = browse
+      ? _vrBrowseList.map(it => ({ kind: 'song', s: it, gi: -1, browse: true }))
+      : _vrDisplayRows()
     const viewH = H - LIST_HEAD - LIST_FOOT
-    const maxScroll = Math.max(0, items.length * LIST_ROW - viewH)
+    const offs: number[] = []
+    let totalH = 0
+    for (const r of rows) { offs.push(totalH); totalH += r.kind === 'group' ? LIST_GROW : LIST_ROW }
+    const maxScroll = Math.max(0, totalH - viewH)
     _vrListScroll = Math.max(0, Math.min(maxScroll, _vrListScroll))
     g.save()
     g.beginPath()
     g.rect(0, LIST_HEAD, W, viewH)
     g.clip()
-    const first = Math.floor(_vrListScroll / LIST_ROW)
-    const last = Math.min(items.length - 1, Math.ceil((_vrListScroll + viewH) / LIST_ROW))
-    for (let i = first; i <= last; i++) {
-      const it = items[i]
-      const y = LIST_HEAD + i * LIST_ROW - _vrListScroll
-      const key = (browse ? 'dl' : 'song') + i
+    for (let i = 0; i < rows.length; i++) {
+      const r = rows[i]
+      const y = LIST_HEAD + offs[i] - _vrListScroll
+      const h = r.kind === 'group' ? LIST_GROW : LIST_ROW
+      if (y + h <= LIST_HEAD || y >= H - LIST_FOOT) continue
+      // Group header: caret + label + divider line; click toggles collapse
+      if (r.kind === 'group') {
+        g.textAlign = 'left'
+        g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
+        const label = `${r.collapsed ? '▸' : '▾'} ${r.label}`
+        g.fillStyle = _vrHoverKey === 'list:grp' + r.key ? '#a8e6ff' : '#6d7aa0'
+        g.fillText(label, 28, y + h / 2 + 1)
+        const lw = g.measureText(label).width
+        g.fillStyle = 'rgba(255,255,255,0.07)'
+        g.fillRect(28 + lw + 12, y + h / 2, Math.max(0, W - 56 - lw - 12), 1)
+        regions.push({ x: 16, y, w: W - 32, h, key: 'grp' + r.key, act: () => {
+          _vrCollapsed[r.key] = !_vrCollapsed[r.key]
+          _vrListDirty = true
+        } })
+        continue
+      }
+      const it = r.s
+      const rowBrowse = !!r.browse
+      const key = (rowBrowse ? 'dl' : 'song') + i
       const hovered = _vrHoverKey === 'list:' + key
-      const selected = !browse && i === vrSelIdx
-      const accent = browse ? '#7fdcff' : '#' + (it.colorR ?? 0x2b9eff).toString(16).padStart(6, '0')
+      const selected = !rowBrowse && r.gi === vrSelIdx
+      const accent = rowBrowse ? '#7fdcff' : '#' + (it.colorR ?? 0x2b9eff).toString(16).padStart(6, '0')
       if (selected || hovered) {
         _rr(g, 10, y + 5, W - 20, LIST_ROW - 10, 14)
         g.fillStyle = selected ? 'rgba(127,220,255,0.14)' : 'rgba(255,255,255,0.06)'
@@ -2181,7 +2402,7 @@ export function useGame() {
         g.fillRect(10, y + 12, 5, LIST_ROW - 24)
       }
       // Thumb: cover bitmap or accent gradient block
-      const bmp = browse ? null : _vrCover(it)
+      const bmp = rowBrowse ? _vrBrowseCover(it) : _vrCover(it)
       if (bmp) {
         g.save(); _rr(g, 28, y + 14, 68, 68, 10); g.clip()
         g.drawImage(bmp, 28, y + 14, 68, 68)
@@ -2196,17 +2417,17 @@ export function useGame() {
       g.textAlign = 'left'
       g.fillStyle = '#ffffff'
       g.font = 'bold 28px "Rajdhani", "PingFang SC", sans-serif'
-      const name = browse ? (it.songName || it.name || '') : t(it.name || '')
+      const name = rowBrowse ? (it.songName || it.name || '') : t(it.name || '')
       g.fillText(_fitText(g, String(name), W - 260), 112, y + 36)
       g.fillStyle = '#9aa4c8'
       g.font = '21px "Rajdhani", "PingFang SC", sans-serif'
-      const sub = browse
+      const sub = rowBrowse
         ? `${it.songAuthor || it.levelAuthor || ''} · ${Math.round(it.bpm || 0)} BPM`
         : `${t(it.en || '') === t(it.name || '') ? t(it.style || '') : t(it.en || '')} · ${it.bpm} BPM`
       g.fillText(_fitText(g, sub, W - 260), 112, y + 66)
       // Right chip: difficulty / upvotes / download state
-      let chip = browse ? `▲${it.upvotes ?? 0}` : t(String(it.diff || ''))
-      if (browse) {
+      let chip = rowBrowse ? `▲${it.upvotes ?? 0}` : t(String(it.diff || ''))
+      if (rowBrowse) {
         if (dlIds.value.includes(String(it.id))) chip = dlInfo.value.name === (it.songName || it.name) ? t('下载中…') : t('排队中')
         else if (SONGS.find(s => s.id === 'bs_' + it.id)) chip = t('✓ 已下载')
       }
@@ -2219,39 +2440,53 @@ export function useGame() {
       g.textAlign = 'center'
       g.fillText(chip, W - cw / 2 - 24, y + 49)
       const ry = Math.max(LIST_HEAD, y + 5)
-      const rh = Math.min(y + LIST_ROW - 5, H - LIST_FOOT) - ry
+      const rh = Math.min(y + h - 5, H - LIST_FOOT) - ry
       if (rh <= 0) continue
       regions.push({
         x: 10, y: ry, w: W - 20, h: rh,
         key,
-        act: browse
+        act: rowBrowse
           ? () => vrBrowserDownload(it)
-          : () => { vrSelIdx = i; _vrListDirty = true; _vrDetailDirty = true; previewSong(i) },
+          : () => { vrSelIdx = r.gi; _vrListDirty = true; _vrDetailDirty = true; previewSong(r.gi) },
       })
     }
     g.restore()
     // Scrollbar
     if (maxScroll > 0) {
-      const barH = Math.max(40, viewH * viewH / (items.length * LIST_ROW))
+      const barH = Math.max(40, viewH * viewH / totalH)
       const barY = LIST_HEAD + (_vrListScroll / maxScroll) * (viewH - barH)
       _rr(g, W - 10, barY, 5, barH, 2.5)
       g.fillStyle = 'rgba(127,220,255,0.4)'
       g.fill()
     }
-    // Footer: BeatSaver entry (pinned, like the desktop button)
-    const fy = H - LIST_FOOT + 8
-    _rr(g, 16, fy, W - 32, LIST_FOOT - 20, 14)
-    g.fillStyle = _vrHoverKey === 'list:bs' ? 'rgba(255,215,110,0.4)' : 'rgba(255,215,110,0.14)'
-    g.fill()
-    g.strokeStyle = 'rgba(255,215,110,0.5)'
-    g.lineWidth = 1.5
-    _rr(g, 16, fy, W - 32, LIST_FOOT - 20, 14)
-    g.stroke()
-    g.fillStyle = '#ffd76e'
-    g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
-    g.textAlign = 'center'
-    g.fillText(t('BEATSAVER · 社区谱面搜索下载'), W / 2, fy + (LIST_FOOT - 20) / 2)
-    regions.push({ x: 16, y: fy, w: W - 32, h: LIST_FOOT - 20, key: 'bs', act: () => vrBrowserCats() })
+    // Footer: browse mode gets a LOAD MORE pill (appends the next page);
+    // songs mode shows nothing — the BEATSAVER entry is the standalone
+    // button below the panel now
+    if (browse) {
+      const fy = H - LIST_FOOT + 8
+      const fh = LIST_FOOT - 20
+      _rr(g, 16, fy, W - 32, fh, 14)
+      if (_vrBrowseNoMore) {
+        g.fillStyle = 'rgba(127,220,255,0.06)'
+        g.fill()
+        g.fillStyle = '#5a6484'
+        g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
+        g.textAlign = 'center'
+        g.fillText(t('没有更多了'), W / 2, fy + fh / 2)
+      } else {
+        g.fillStyle = _vrHoverKey === 'list:more' ? 'rgba(127,220,255,0.45)' : 'rgba(127,220,255,0.16)'
+        g.fill()
+        g.strokeStyle = 'rgba(127,220,255,0.5)'
+        g.lineWidth = 1.5
+        _rr(g, 16, fy, W - 32, fh, 14)
+        g.stroke()
+        g.fillStyle = '#a8e6ff'
+        g.font = 'bold 25px "Rajdhani", "PingFang SC", sans-serif'
+        g.textAlign = 'center'
+        g.fillText(_vrLoadingMore ? t('加载中…') : t('加载更多 ↓'), W / 2, fy + fh / 2)
+        regions.push({ x: 16, y: fy, w: W - 32, h: fh, key: 'more', act: () => vrBrowserLoadMore() })
+      }
+    }
     _drawVRDlStrip(g, W, H)
     tex.needsUpdate = true
     _vrListDirty = false
@@ -2289,6 +2524,30 @@ export function useGame() {
     ['metal', '金属'], ['hip-hop-rap', '说唱'], ['classical-orchestral', '古典'],
   ]
   const VR_QUICK = ['YOASOBI', 'Camellia', '千本桜', 'アイドル', '米津玄師']
+
+  // Pinned BEATSAVER entry below the list panel — always clickable in the menu
+  function _drawVRBsBtn() {
+    const { canvas, ctx: g, tex, regions } = vrBsBtn.userData
+    const W = canvas.width, H = canvas.height
+    regions.length = 0
+    g.clearRect(0, 0, W, H)
+    const hovered = _vrHoverKey === 'bsbtn:entry'
+    _rr(g, 0, 0, W, H, 40)
+    g.fillStyle = hovered ? 'rgba(255,215,110,0.4)' : 'rgba(255,215,110,0.14)'
+    g.fill()
+    g.strokeStyle = 'rgba(255,215,110,0.5)'
+    g.lineWidth = 3
+    _rr(g, 1.5, 1.5, W - 3, H - 3, 40)
+    g.stroke()
+    g.textAlign = 'center'
+    g.textBaseline = 'middle'
+    g.fillStyle = '#ffd76e'
+    g.font = 'bold 34px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText(t('BEATSAVER · 社区谱面搜索下载'), W / 2, H / 2 + 1)
+    regions.push({ x: 0, y: 0, w: W, h: H, key: 'entry', act: () => vrBrowserCats() })
+    tex.needsUpdate = true
+    _vrBsDirty = false
+  }
 
   // BeatSaver entry: desktop-style browse panel (sort pills + genre tags + quick
   // searches + keyboard entry) drawn on the list panel
@@ -2334,17 +2593,17 @@ export function useGame() {
     g.font = 'bold 23px "Rajdhani", "PingFang SC", sans-serif'
     chip(24, 142, 140, 52, t('热门 TOP'), 'sortR', _vrBrowseSort === 'Rating', () => {
       _vrBrowseSort = 'Rating'
-      vrBrowserFetch(t('热门 TOP'), () => browseBeatSaver('Rating'))
+      vrBrowserFetch(t('热门 TOP'), p => browseBeatSaver('Rating', p))
     })
     chip(176, 142, 140, 52, t('最新 NEW'), 'sortL', _vrBrowseSort === 'Latest', () => {
       _vrBrowseSort = 'Latest'
-      vrBrowserFetch(t('最新 NEW'), () => browseBeatSaver('Latest'))
+      vrBrowserFetch(t('最新 NEW'), p => browseBeatSaver('Latest', p))
     })
     chip(328, 142, 140, 52, t('榜单热度'), 'sortBL', false, () => {
-      vrBrowserFetch('BeatLeader · ' + t('榜单热度'), () => browseBeatLeader('trending'))
+      vrBrowserFetch('BeatLeader · ' + t('榜单热度'), p => browseBeatLeader('trending', p))
     })
     chip(480, 142, 130, 52, t('排位谱'), 'sortBLR', false, () => {
-      vrBrowserFetch('BeatLeader · ' + t('排位谱'), () => browseBeatLeader('ranked'))
+      vrBrowserFetch('BeatLeader · ' + t('排位谱'), p => browseBeatLeader('ranked', p))
     })
 
     section(t('分类 GENRE'), 236)
@@ -2355,7 +2614,7 @@ export function useGame() {
       if (cx + w > W - 24) { cx = 24; cy += 62 }
       const sortLabel = _vrBrowseSort === 'Rating' ? t('热门') : t('最新')
       chip(cx, cy, w, 50, t(label), 'tag' + tag, false, () => {
-        vrBrowserFetch(`${sortLabel} · ${t(label)}`, () => browseBeatSaver(_vrBrowseSort, 0, tag))
+        vrBrowserFetch(`${sortLabel} · ${t(label)}`, p => browseBeatSaver(_vrBrowseSort, p, tag))
       })
       cx += w + 12
     }
@@ -2368,7 +2627,7 @@ export function useGame() {
       const w = Math.ceil(g.measureText(q).width) + 36
       if (cx + w > W - 24) { cx = 24; cy += 62 }
       chip(cx, cy, w, 50, q, 'quick' + q, false, () => {
-        vrBrowserFetch(q, () => searchBeatSaver(q))
+        vrBrowserFetch(q, p => searchBeatSaver(q, p))
       })
       cx += w + 12
     }
@@ -2450,83 +2709,23 @@ export function useGame() {
     g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
     g.fillText(_fitText(g, `${t(s.style || '')} · ${s.bpm} BPM`, W - 250), 222, 158)
 
-    // Graphics quality pills (same as the desktop quality-line)
-    g.fillStyle = '#7d88ad'
-    g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
-    g.textAlign = 'left'
-    g.fillText(t('画质'), 28, 232)
-    let qx = 90
-    for (const [qk, ql] of [['low', t('低')], ['medium', t('中')], ['high', t('高')]] as [string, string][]) {
-      const cur = quality.value === qk
-      const hovered = _vrHoverKey === 'detail:q' + qk
-      _rr(g, qx, 210, 74, 44, 22)
-      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
-      g.fill()
-      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
-      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
-      g.textAlign = 'center'
-      g.fillText(ql, qx + 37, 233)
-      regions.push({ x: qx, y: 210, w: 74, h: 44, key: 'q' + qk, act: () => {
-        setQuality(qk)
-        _vrDetailDirty = true
-      } })
-      qx += 86
-    }
-    g.textAlign = 'left'
-
-    // VR frame limiter + full-wall (原画) toggle
-    g.fillStyle = '#7d88ad'
-    g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
-    g.fillText(t('帧率'), 28, 284)
-    let fx = 90
-    // Tiers resolve to the DEVICE's native rates (unsupported rates flicker)
-    const tiers: [string, string][] = [['low', t('低')], ['mid', t('中')], ['high', t('高')], ['max', t('无上限')]]
-    for (const [tk, tl] of tiers) {
-      const rate = vrRateFor(tk)
-      const label = rate != null ? `${tl}${rate}` : tl
-      const cur = vrFpsTier === tk
-      const hovered = _vrHoverKey === 'detail:fps' + tk
-      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
-      const pw = Math.ceil(g.measureText(label).width) + 30
-      _rr(g, fx, 262, pw, 44, 22)
-      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
-      g.fill()
-      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
-      g.textAlign = 'center'
-      g.fillText(label, fx + pw / 2, 285)
-      regions.push({ x: fx, y: 262, w: pw, h: 44, key: 'fps' + tk, act: () => {
-        vrFpsTier = tk
-        localStorage.setItem('bs_vr_fps_tier', tk)
-        applyVRFrameRate()
-        _vrDetailDirty = true
-      } })
-      fx += pw + 10
-    }
-    {
-      const pw = 160
-      const hovered = _vrHoverKey === 'detail:fullwalls'
-      _rr(g, W - pw - 28, 262, pw, 44, 22)
-      g.fillStyle = vrFullWalls ? '#ffb45e' : (hovered ? 'rgba(255,180,94,0.35)' : 'rgba(255,180,94,0.14)')
-      g.fill()
-      g.fillStyle = vrFullWalls ? '#241100' : '#ffcf9e'
-      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
-      g.textAlign = 'center'
-      g.fillText(vrFullWalls ? t('原画墙 ⚠开') : t('原画墙 关'), W - pw / 2 - 28, 285)
-      regions.push({ x: W - pw - 28, y: 262, w: pw, h: 44, key: 'fullwalls', act: () => {
-        vrFullWalls = !vrFullWalls
-        localStorage.setItem('bs_vr_fullwalls', vrFullWalls ? '1' : '0')
-        _vrDetailDirty = true
-      } })
-      if (vrFullWalls) {
-        g.fillStyle = '#ffb45e'
-        g.font = '16px "Rajdhani", "PingFang SC", sans-serif'
-        g.fillText(t('可能卡顿·下局生效'), W - pw / 2 - 28, 318)
+    // BeatSaver maps: current-difficulty stats (notes / bombs / walls / NPS)
+    if (s.id && String(s.id).startsWith('bs_') && !s.builtin && s.internal) {
+      const d = s.internal.diffs[s.internal.currentDiff]
+      if (d) {
+        const nn = (d.notes || []).filter((n: any) => n.type !== 3).length
+        const bb = (d.notes || []).filter((n: any) => n.type === 3).length
+        const ww = (d.walls || []).filter((w: any) => w.wx == null).length
+        const nps = (nn / Math.max(1, s.duration || 180)).toFixed(1)
+        g.fillStyle = '#8fa0c8'
+        g.font = 'bold 20px "Rajdhani", "PingFang SC", sans-serif'
+        g.textAlign = 'left'
+        g.fillText(`♪ ${nn}   ✹ ${bb}   ▮ ${ww}   ${nps}/s`, 222, 188)
       }
     }
-    g.textAlign = 'left'
 
     // Difficulty pills (same behavior as the desktop pills)
-    let py = 332
+    let py = 292
     if (s.diffList && s.diffList.length > 1) {
       g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
       let px = 28
@@ -2555,7 +2754,7 @@ export function useGame() {
     }
 
     // PLAY button
-    const byy = Math.max(py, H - 200)
+    const byy = Math.min(Math.max(py, H - 200), H - 206)
     _rr(g, 28, byy, W - 56, 92, 20)
     g.fillStyle = _vrHoverKey === 'detail:play' ? '#ffffff' : accent
     g.fill()
@@ -2569,24 +2768,260 @@ export function useGame() {
       cleanupVRMenu()
     } })
 
-    // Delete (downloaded, non-builtin only)
-    if (s.id && String(s.id).startsWith('bs_') && !s.builtin) {
-      const dy = byy + 108
-      _rr(g, W - 250, dy, 222, 56, 14)
+    // Pinned footer: ⚙ Settings at the very bottom of the detail panel —
+    // shares the row with 删除 for downloaded community maps
+    const canDel = !!(s.id && String(s.id).startsWith('bs_') && !s.builtin)
+    const fy = H - 88
+    const fw = canDel ? Math.floor((W - 56 - 14) / 2) : W - 56
+    if (canDel) {
+      _rr(g, 28, fy, fw, 56, 14)
       g.fillStyle = _vrHoverKey === 'detail:del' ? 'rgba(255,110,110,0.5)' : 'rgba(255,110,110,0.16)'
       g.fill()
       g.fillStyle = '#ff8f8f'
       g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
-      g.fillText(t('删除 DELETE'), W - 139, dy + 29)
-      regions.push({ x: W - 250, y: dy, w: 222, h: 56, key: 'del', act: async () => {
+      g.textAlign = 'center'
+      g.fillText(t('删除 DELETE'), 28 + fw / 2, fy + 29)
+      regions.push({ x: 28, y: fy, w: fw, h: 56, key: 'del', act: async () => {
         await deleteDownloadedSong(vrSelIdx)
         vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, vrSelIdx))
         _vrListDirty = true
         _vrDetailDirty = true
       } })
     }
+    const gx = 28 + (canDel ? fw + 14 : 0)
+    _rr(g, gx, fy, fw, 56, 14)
+    g.fillStyle = _vrHoverKey === 'detail:gear' ? 'rgba(127,220,255,0.35)' : 'rgba(127,220,255,0.12)'
+    g.fill()
+    g.fillStyle = '#cfe8ff'
+    g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'center'
+    g.fillText('⚙ ' + t('设置 SETTINGS'), gx + fw / 2, fy + 29)
+    regions.push({ x: gx, y: fy, w: fw, h: 56, key: 'gear', act: () => {
+      _vrSettingsOpen = true
+      _vrLangOpen = false
+      vrDetailPanel.visible = false
+      vrSettingsPanel.visible = true
+      _vrSettingsDirty = true
+    } })
+    g.textAlign = 'left'
     tex.needsUpdate = true
     _vrDetailDirty = false
+  }
+
+  // Settings panel: quality / note speed / VR frame limiter / full walls /
+  // language. Swaps in for the detail panel via the ⚙ button.
+  function _drawVRSettings() {
+    const { canvas, ctx: g, tex, regions } = vrSettingsPanel.userData
+    const W = canvas.width, H = canvas.height
+    regions.length = 0
+    g.clearRect(0, 0, W, H)
+    _rr(g, 0, 0, W, H, 22)
+    g.fillStyle = 'rgba(8,11,24,0.94)'
+    g.fill()
+    g.strokeStyle = 'rgba(127,220,255,0.35)'
+    g.lineWidth = 2
+    _rr(g, 1, 1, W - 2, H - 2, 22)
+    g.stroke()
+    g.textBaseline = 'middle'
+
+    // Language dropdown submenu — full-panel vertical list, like the desktop menu
+    if (_vrLangOpen) {
+      g.textAlign = 'left'
+      g.fillStyle = '#ffffff'
+      g.font = 'bold 32px "Rajdhani", "PingFang SC", sans-serif'
+      g.fillText(t('语言 LANGUAGE'), 28, 44)
+      const bw = 130
+      _rr(g, W - bw - 20, 14, bw, 52, 12)
+      g.fillStyle = _vrHoverKey === 'settings:slangback' ? 'rgba(255,110,199,0.45)' : 'rgba(255,110,199,0.2)'
+      g.fill()
+      g.fillStyle = '#ff9ed9'
+      g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(t('← 返回'), W - bw / 2 - 20, 40)
+      regions.push({ x: W - bw - 20, y: 14, w: bw, h: 52, key: 'slangback', act: () => {
+        _vrLangOpen = false
+        _vrSettingsDirty = true
+      } })
+      const ry0 = 86, lrh = 50
+      LANGS.forEach(([code, name], li) => {
+        const y = ry0 + li * lrh
+        const cur = lang.value === code
+        const hovered = _vrHoverKey === 'settings:slangsel' + code
+        if (cur || hovered) {
+          _rr(g, 20, y + 3, W - 40, lrh - 8, 12)
+          g.fillStyle = cur ? 'rgba(127,220,255,0.16)' : 'rgba(255,255,255,0.06)'
+          g.fill()
+        }
+        g.textAlign = 'left'
+        g.fillStyle = cur ? '#7fdcff' : '#cfe8ff'
+        g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+        g.fillText(String(name), 40, y + lrh / 2)
+        if (cur) {
+          g.textAlign = 'right'
+          g.fillText('✓', W - 44, y + lrh / 2)
+        }
+        regions.push({ x: 16, y, w: W - 32, h: lrh, key: 'slangsel' + code, act: () => {
+          _vrLangOpen = false
+          if (lang.value !== code) {
+            setLang(code)
+            // every panel carries translated strings — repaint them all
+            _vrSettingsDirty = true
+            _vrDetailDirty = true
+            _vrListDirty = true
+          } else {
+            _vrSettingsDirty = true
+          }
+        } })
+      })
+      tex.needsUpdate = true
+      _vrSettingsDirty = false
+      return
+    }
+
+    // Header + back button
+    g.textAlign = 'left'
+    g.fillStyle = '#ffffff'
+    g.font = 'bold 34px "Rajdhani", "PingFang SC", sans-serif'
+    g.fillText('⚙ ' + t('设置 SETTINGS'), 24, 52)
+    const bw = 130
+    _rr(g, W - bw - 20, 18, bw, 56, 12)
+    g.fillStyle = _vrHoverKey === 'settings:sback' ? 'rgba(255,110,199,0.45)' : 'rgba(255,110,199,0.2)'
+    g.fill()
+    g.fillStyle = '#ff9ed9'
+    g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+    g.textAlign = 'center'
+    g.fillText(t('← 返回'), W - bw / 2 - 20, 47)
+    regions.push({ x: W - bw - 20, y: 18, w: bw, h: 56, key: 'sback', act: () => {
+      _vrSettingsOpen = false
+      _vrLangOpen = false
+      vrSettingsPanel.visible = false
+      vrDetailPanel.visible = true
+      _vrDetailDirty = true
+    } })
+
+    const labelStyle = () => {
+      g.textAlign = 'left'
+      g.fillStyle = '#7d88ad'
+      g.font = '20px "Rajdhani", "PingFang SC", sans-serif'
+    }
+    const CX = 190 // controls start after the label column
+
+    // 画质 quality
+    labelStyle()
+    g.fillText(t('画质 GRAPHICS'), 28, 148)
+    let qx = CX
+    for (const [qk, ql] of [['low', t('低')], ['medium', t('中')], ['high', t('高')]] as [string, string][]) {
+      const cur = quality.value === qk
+      const hovered = _vrHoverKey === 'settings:sq' + qk
+      _rr(g, qx, 126, 74, 44, 22)
+      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(ql, qx + 37, 149)
+      regions.push({ x: qx, y: 126, w: 74, h: 44, key: 'sq' + qk, act: () => {
+        setQuality(qk)
+        _vrSettingsDirty = true
+      } })
+      qx += 86
+    }
+
+    // 流速 note speed: − / value / + (0.25 steps, matches the desktop slider)
+    labelStyle()
+    g.fillText(t('流速 SPEED'), 28, 220)
+    const stepSpeed = (d: number) => {
+      setSpeedMul(Math.round((speedMul.value + d) * 100) / 100)
+      _vrSettingsDirty = true
+    }
+    const speedBtn = (x: number, w: number, label: string, key: string, act: () => void, dim = false) => {
+      const hovered = _vrHoverKey === 'settings:' + key
+      _rr(g, x, 198, w, 44, 22)
+      g.fillStyle = dim ? 'rgba(127,220,255,0.05)' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = dim ? '#5a6488' : '#cfe8ff'
+      g.font = 'bold 24px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(label, x + w / 2, 221)
+      if (!dim) regions.push({ x, y: 198, w, h: 44, key, act })
+    }
+    speedBtn(CX, 56, '−', 'sminus', () => stepSpeed(-0.25), speedMul.value <= 0.5)
+    speedBtn(CX + 66, 110, speedMul.value + 'x', 'sval', () => {}, true)
+    speedBtn(CX + 186, 56, '+', 'splus', () => stepSpeed(0.25), speedMul.value >= 3)
+
+    // 帧率 VR frame limiter
+    labelStyle()
+    g.fillText(t('帧率'), 28, 292)
+    let fx = CX
+    const tiers: [string, string][] = [['low', t('低')], ['mid', t('中')], ['high', t('高')], ['max', t('无上限')]]
+    for (const [tk, tl] of tiers) {
+      const rate = vrRateFor(tk)
+      const label = rate != null ? `${tl}${rate}` : tl
+      const cur = vrFpsTier === tk
+      const hovered = _vrHoverKey === 'settings:sfps' + tk
+      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
+      const pw = Math.ceil(g.measureText(label).width) + 30
+      _rr(g, fx, 270, pw, 44, 22)
+      g.fillStyle = cur ? '#7fdcff' : (hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)')
+      g.fill()
+      g.fillStyle = cur ? '#0a0e1e' : '#cfe8ff'
+      g.textAlign = 'center'
+      g.fillText(label, fx + pw / 2, 293)
+      regions.push({ x: fx, y: 270, w: pw, h: 44, key: 'sfps' + tk, act: () => {
+        vrFpsTier = tk
+        localStorage.setItem('bs_vr_fps_tier', tk)
+        applyVRFrameRate()
+        _vrSettingsDirty = true
+      } })
+      fx += pw + 10
+    }
+
+    // 原画墙 full walls
+    {
+      const pw = 160
+      const hovered = _vrHoverKey === 'settings:sfullwalls'
+      _rr(g, CX, 342, pw, 44, 22)
+      g.fillStyle = vrFullWalls ? '#ffb45e' : (hovered ? 'rgba(255,180,94,0.35)' : 'rgba(255,180,94,0.14)')
+      g.fill()
+      g.fillStyle = vrFullWalls ? '#241100' : '#ffcf9e'
+      g.font = 'bold 21px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(vrFullWalls ? t('原画墙 ⚠开') : t('原画墙 关'), CX + pw / 2, 365)
+      regions.push({ x: CX, y: 342, w: pw, h: 44, key: 'sfullwalls', act: () => {
+        vrFullWalls = !vrFullWalls
+        localStorage.setItem('bs_vr_fullwalls', vrFullWalls ? '1' : '0')
+        _vrSettingsDirty = true
+      } })
+      if (vrFullWalls) {
+        g.fillStyle = '#ffb45e'
+        g.font = '16px "Rajdhani", "PingFang SC", sans-serif'
+        g.textAlign = 'left'
+        g.fillText(t('可能卡顿·下局生效'), CX + pw + 14, 365)
+      }
+    }
+
+    // 语言 language: dropdown pill → opens the full-panel language list
+    labelStyle()
+    g.fillText(t('语言 LANGUAGE'), 28, 436)
+    {
+      const cur = LANGS.find(l => l[0] === lang.value)
+      const label = `${(cur && cur[1]) || ''} ▾`
+      const hovered = _vrHoverKey === 'settings:slangopen'
+      _rr(g, CX, 414, 220, 44, 22)
+      g.fillStyle = hovered ? 'rgba(127,220,255,0.3)' : 'rgba(127,220,255,0.12)'
+      g.fill()
+      g.fillStyle = '#cfe8ff'
+      g.font = 'bold 22px "Rajdhani", "PingFang SC", sans-serif'
+      g.textAlign = 'center'
+      g.fillText(_fitText(g, label, 208), CX + 110, 437)
+      regions.push({ x: CX, y: 414, w: 220, h: 44, key: 'slangopen', act: () => {
+        _vrLangOpen = true
+        _vrSettingsDirty = true
+      } })
+    }
+
+    tex.needsUpdate = true
+    _vrSettingsDirty = false
   }
 
   // Desktop-style panels are the VR song-select "home"
@@ -2600,7 +3035,7 @@ export function useGame() {
       // view and start its preview so the transition is seamless
       vrSelIdx = Math.max(0, Math.min(SONGS.length - 1, _vrEnterSel))
       _vrEnterSel = null
-      _vrListScroll = Math.max(0, vrSelIdx * LIST_ROW - 316)
+      _vrScrollToSelected()
       previewSong(vrSelIdx)
     } else {
       _vrListScroll = 0
@@ -2716,7 +3151,7 @@ export function useGame() {
       [t('删除 DEL'), 0.72, 0.55, '#ff6e6e', () => { _vrKbText = _vrKbText.slice(0, -1); _updateKbDisplay() }],
       [t('搜索 GO'), 0.85, 1.45, '#ffd76e', () => {
         const q = _vrKbText.trim()
-        if (q) vrBrowserFetch(`搜索: ${q}`, () => searchBeatSaver(q))
+        if (q) vrBrowserFetch(`搜索: ${q}`, p => searchBeatSaver(q, p))
       }],
     ]
     for (const [label, w, x, accent, act] of specials) {
@@ -2776,15 +3211,42 @@ export function useGame() {
     _vrSpinner = ring
   }
 
-  async function vrBrowserFetch(label: string, fetcher: () => Promise<any[]>) {
+  async function vrBrowserFetch(label: string, fetcher: (page: number) => Promise<any[]>) {
     _vrShowSpinner(t('加载中 LOADING'))
+    // Remember the fetcher so 「加载更多」 can pull subsequent pages
+    _vrBrowseFetcher = fetcher
+    _vrBrowsePage = 0
+    _vrBrowseNoMore = false
     try {
-      const list = await fetcher()
+      const list = await fetcher(0)
       if (state.value !== 'vrmenu') return
       if (!list.length) { _vrBrowserMessage(t('没有结果'), () => vrBrowserCats()); return }
       vrShowBrowseResults(list, label)
     } catch (e) {
       if (state.value === 'vrmenu') _vrBrowserMessage(t('加载失败'), () => vrBrowserCats())
+    }
+  }
+
+  // Append the next page of browse results to the current list
+  async function vrBrowserLoadMore() {
+    if (_vrLoadingMore || _vrBrowseNoMore || !_vrBrowseFetcher) return
+    _vrLoadingMore = true
+    _vrListDirty = true
+    try {
+      const list = await _vrBrowseFetcher(_vrBrowsePage + 1)
+      if (state.value !== 'vrmenu') return
+      if (!list.length) { _vrBrowseNoMore = true; return }
+      // Dedupe by id (rankings shift between pages can repeat maps)
+      const seen = new Set(_vrBrowseList.map(x => String(x.id)))
+      const add = list.filter(x => !seen.has(String(x.id)))
+      if (!add.length) { _vrBrowseNoMore = true; return }
+      _vrBrowsePage++
+      _vrBrowseList.push(...add)
+    } catch (e) {
+      // Keep the current list on failure; user can retry the button
+    } finally {
+      _vrLoadingMore = false
+      _vrListDirty = true
     }
   }
 
@@ -2857,7 +3319,8 @@ export function useGame() {
       const dir = _vrDir.set(0, 0, -1).applyQuaternion(quat)
       _vrRaycaster.set(pos, dir)
       _vrRaycaster.far = 10
-      const hits = _vrRaycaster.intersectObjects([vrListPanel, vrDetailPanel], false)
+      const panels = [vrListPanel, vrDetailPanel && vrDetailPanel.visible ? vrDetailPanel : null, vrSettingsPanel && vrSettingsPanel.visible ? vrSettingsPanel : null, vrBsBtn].filter(Boolean)
+      const hits = _vrRaycaster.intersectObjects(panels, false)
       let dist = 3
       if (hits.length && hits[0].uv) {
         const hit = hits[0]
@@ -2866,7 +3329,7 @@ export function useGame() {
         const { canvas, regions } = panel.userData
         const px = hit.uv.x * canvas.width
         const py = (1 - hit.uv.y) * canvas.height
-        const tag = panel === vrListPanel ? 'list' : 'detail'
+        const tag = panel === vrListPanel ? 'list' : panel === vrDetailPanel ? 'detail' : panel === vrBsBtn ? 'bsbtn' : 'settings'
         for (const r of regions) {
           if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) {
             hoverKey = tag + ':' + r.key
@@ -2886,6 +3349,8 @@ export function useGame() {
       const newP = hoverKey.split(':')[0]
       if (oldP === 'list' || newP === 'list') _vrListDirty = true
       if (oldP === 'detail' || newP === 'detail') _vrDetailDirty = true
+      if (oldP === 'settings' || newP === 'settings') _vrSettingsDirty = true
+      if (oldP === 'bsbtn' || newP === 'bsbtn') _vrBsDirty = true
       _vrHoverKey = hoverKey
       if (hoverKey && synth) synth.sfxHover()
     }
@@ -2937,6 +3402,8 @@ export function useGame() {
       _redrawVRListPanel()
     }
     if (vrDetailPanel && _vrDetailDirty) _drawVRDetail()
+    if (vrSettingsPanel && vrSettingsPanel.visible && _vrSettingsDirty) _drawVRSettings()
+    if (vrBsBtn && _vrBsDirty) _drawVRBsBtn()
   }
 
   let _vrFirstMenuFrame = true
@@ -3157,10 +3624,14 @@ export function useGame() {
     g.font = '26px "Rajdhani", sans-serif'
     g.fillText(en, 256, 126)
     const tex = new THREE.CanvasTexture(c)
-    return new THREE.Mesh(
+    const mesh = new THREE.Mesh(
       new THREE.PlaneGeometry(0.85, 0.27),
-      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, side: THREE.DoubleSide }),
+      // depthTest off + high renderOrder: pause/results buttons must float
+      // above the environment, never occluded by scene structures
+      new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false, fog: false, side: THREE.DoubleSide }),
     )
+    mesh.renderOrder = 999
+    return mesh
   }
 
   function buildVRPanel(st) {
@@ -3364,7 +3835,7 @@ export function useGame() {
   return {
     state, auto, invincible, invincibleUsed, downloadProgress, songListVersion, localLoad, songIdx, score, combo, acc, mult, energy, progress, songLabel,
     rank, rScore, rAcc, rCombo, rHits, resultsTitle, failSub,
-    countdownNum, countdownVisible, xrSupported, xrActive,
+    countdownNum, countdownVisible, songIntro, songIntroVisible, xrSupported, xrActive,
     SONGS,
     init, startSong, pauseSong, resumeSong, quitToMenu, failSong,
     onMouseMove, onKeyDown, onKeyUp, toggleAuto, toggleInvincible,
@@ -3372,7 +3843,7 @@ export function useGame() {
     getHandVideo: () => handTracker?.video || null,
     handleMusicFile, searchSong, downloadSong, deleteDownloadedSong, enterVR, dumpLog, dispose,
     dlInfo, dlIds, queueDownload,
-    uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty,
+    uiClick, uiHover, previewSong, quality, setQuality, setSongDifficulty, speedMul, setSpeedMul,
     // Debug: render the VR panels in desktop mode for screenshot verification
     _debugVRPanels: (hover?: string, mode?: string) => {
       buildVRMenu()
