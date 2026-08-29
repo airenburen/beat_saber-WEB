@@ -25,6 +25,13 @@ public class ServerService extends Service {
     /** 当前已启动的服务器端口（0 = 未启动），供 MainActivity 读取 */
     public static volatile int startedPort = 0;
 
+    /** 服务器就绪回调（MainActivity 用于刷新界面状态） */
+    public interface OnServerReadyListener {
+        void onServerReady(int port);
+    }
+
+    public static volatile OnServerReadyListener readyListener;
+
     private WebServer server;
     private PowerManager.WakeLock wakeLock;
 
@@ -55,6 +62,7 @@ public class ServerService extends Service {
             server = new WebServer(this, port);
             server.start(NanoHttpdTimeout, true);
             startedPort = port;
+            notifyReady(port);
             // 部分情况下 Quest 会在浏览器运行期间休眠后台进程，用 wakelock 保底
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bsw:server");
@@ -66,6 +74,13 @@ public class ServerService extends Service {
     }
 
     private static final int NanoHttpdTimeout = 5000;
+
+    private void notifyReady(final int port) {
+        new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+            OnServerReadyListener l = readyListener;
+            if (l != null) l.onServerReady(port);
+        });
+    }
 
     private int findFreePort() {
         // 从 8080 开始找空闲端口
