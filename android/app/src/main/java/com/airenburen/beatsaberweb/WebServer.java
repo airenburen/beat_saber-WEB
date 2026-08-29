@@ -21,6 +21,9 @@ public class WebServer extends NanoHTTPD {
 
     private final AssetManager assets;
 
+    /** 最近一次收到 HTTP 请求的时间（elapsedRealtime），服务层用于闲置检测 */
+    public static volatile long lastRequestMs = android.os.SystemClock.elapsedRealtime();
+
     public WebServer(Context context, int port) {
         super(port);
         this.assets = context.getAssets();
@@ -28,7 +31,14 @@ public class WebServer extends NanoHTTPD {
 
     @Override
     public Response serve(IHTTPSession session) {
+        lastRequestMs = android.os.SystemClock.elapsedRealtime();
         String uri = session.getUri();
+        // 心跳：网页每 20s 打一次，证明浏览器还活着（防止服务在后台无限常驻）
+        if (uri.equals("/__ping")) {
+            Response pong = newFixedResponse(Response.Status.OK, "ok");
+            pong.addHeader("Cache-Control", "no-store");
+            return pong;
+        }
         // 防目录穿越
         if (uri.contains("..")) {
             return newFixedResponse(Response.Status.FORBIDDEN, "Forbidden");

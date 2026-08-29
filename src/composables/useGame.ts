@@ -109,6 +109,13 @@ export function useGame() {
 
   // ========== Init ==========
   function init(canvas) {
+    // APK 心跳：每 20s 向本地服务器发一次 /__ping，证明浏览器还活着；
+    // 服务器 5 分钟收不到心跳就自动停掉（桌面浏览器下该请求 404 无副作用）
+    if (!(window as any).__bsHeartbeat) {
+      (window as any).__bsHeartbeat = setInterval(() => {
+        fetch('/__ping').catch(() => {})
+      }, 20000)
+    }
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false, canvas })
     renderer.setSize(window.innerWidth, window.innerHeight)
     applyPixelBudget()
@@ -518,6 +525,15 @@ export function useGame() {
   function spawnNote(d, mats) {
     const g = createNoteMesh(d, mats, textures)
     g.position.z = G.hitZ - SPAWN_DIST
+    // Notes/bombs 必须浮在墙（890）之上：墙也是 depthTest off，且渲染顺序更靠后，
+    // 不给 notes 挂高层级的话墙会直接把 note 盖住（与昨日 HUD 遮挡同类问题）
+    g.traverse((o: any) => {
+      if ((o.isMesh || o.isSprite) && o.material) {
+        o.renderOrder = 900
+        o.material.depthTest = false
+        o.material.fog = false
+      }
+    })
     scene.add(g)
     const rec: any = { d, g, cut: false, missed: false }
     if (d.track || d.anim) {
@@ -3745,7 +3761,8 @@ export function useGame() {
       // Render-resolution scale per quality tier (must be set before setSession)
       const fbScale = quality.value === 'low' ? 0.7 : quality.value === 'medium' ? 0.85 : 1.0
       try { renderer.xr.setFramebufferScaleFactor(fbScale) } catch (e) { /* older three */ }
-      try { (renderer.xr as any).setFoveation?.(1) } catch (e) { /* not supported */ }
+      // foveation 1（最大档）边缘模糊区随头动漂移，Quest 上易感知为单眼"抽搐"，降一档
+      try { (renderer.xr as any).setFoveation?.(0.5) } catch (e) { /* not supported */ }
       renderer.xr.setSession(session)
       renderer.setAnimationLoop(tick)
       applyVRFrameRate()

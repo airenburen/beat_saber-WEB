@@ -35,6 +35,23 @@ public class ServerService extends Service {
     private WebServer server;
     private PowerManager.WakeLock wakeLock;
 
+    // 闲置看门狗：网页端每 20s 发一次 /__ping 心跳，浏览器关闭后心跳停止，
+    // 超过 5 分钟没有请求就自动停掉服务，避免后台无限常驻耗电
+    private static final long IDLE_TIMEOUT_MS = 5 * 60 * 1000;
+    private final android.os.Handler idleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable idleCheck = new Runnable() {
+        @Override
+        public void run() {
+            if (server == null) return;
+            long idle = android.os.SystemClock.elapsedRealtime() - WebServer.lastRequestMs;
+            if (idle > IDLE_TIMEOUT_MS) {
+                stopSelf();
+            } else {
+                idleHandler.postDelayed(this, 30_000);
+            }
+        }
+    };
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -67,6 +84,8 @@ public class ServerService extends Service {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "bsw:server");
             wakeLock.acquire();
+            idleHandler.removeCallbacks(idleCheck);
+            idleHandler.postDelayed(idleCheck, 30_000);
         } catch (IOException e) {
             server = null;
             startedPort = 0;
@@ -123,6 +142,7 @@ public class ServerService extends Service {
 
     @Override
     public void onDestroy() {
+        idleHandler.removeCallbacks(idleCheck);
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (server != null) {
             server.stop();
