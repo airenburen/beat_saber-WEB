@@ -522,6 +522,15 @@ export function useGame() {
   function spawnNote(d, mats) {
     const g = createNoteMesh(d, mats, textures)
     g.position.z = G.hitZ - SPAWN_DIST
+    // Notes/bombs 必须浮在墙（890）之上：墙也是 depthTest off，且渲染顺序更靠后，
+    // 不给 notes 挂高层级的话墙会直接把 note 盖住（与 HUD 遮挡同类问题）
+    g.traverse((o: any) => {
+      if ((o.isMesh || o.isSprite) && o.material) {
+        o.renderOrder = 900
+        o.material.depthTest = false
+        o.material.fog = false
+      }
+    })
     scene.add(g)
     const rec: any = { d, g, cut: false, missed: false }
     if (d.track || d.anim) {
