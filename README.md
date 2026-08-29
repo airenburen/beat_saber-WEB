@@ -112,12 +112,11 @@ npm run dev      # 开发服务器(HTTPS)
 npm run build    # 产物在 dist/
 ```
 
-技术栈:Vue 3 + TypeScript + Three.js(WebXR)+ Web Audio + IndexedDB + MediaPipe Tasks Vision。
+技术栈:Vue 3 + TypeScript + Three.js(WebXR)+ Web Audio + IndexedDB。
 
 ## 致谢与声明
 
 - 舞台模型/着色器/方块模型/箭头精灵移植自 [supermedium/beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer)(MIT)
-- 手部追踪:[MediaPipe](https://github.com/google-ai-edge/mediapipe) HandLandmarker
 - 谱面数据:[BeatSaver](https://beatsaver.com) / [BeatLeader](https://beatleader.xyz) 公开 API
 - 本项目为非商业粉丝作品,与 Beat Games / Meta 无关;"Beat Saber" 商标归其所有者
 

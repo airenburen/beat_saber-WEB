@@ -1,0 +1,32 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.airenburen.beatsaberweb'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "com.airenburen.beatsaberweb"
+        minSdk 29          // Quest 系统版本
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // 轻量级嵌入式 HTTP 服务器，用于把 assets/www 里的网页游戏跑在 localhost
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
+}

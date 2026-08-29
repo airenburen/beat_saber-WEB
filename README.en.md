@@ -100,12 +100,11 @@ npm run dev      # dev server (HTTPS)
 npm run build    # output in dist/
 ```
 
-Stack: Vue 3 + TypeScript + Three.js (WebXR) + Web Audio + IndexedDB + MediaPipe Tasks Vision.
+Stack: Vue 3 + TypeScript + Three.js (WebXR) + Web Audio + IndexedDB.
 
 ## Credits & disclaimer
 
 - Stage models/shaders, block model and arrow sprites ported from [supermedium/beatsaver-viewer](https://github.com/supermedium/beatsaver-viewer) (MIT)
-- Hand tracking: [MediaPipe](https://github.com/google-ai-edge/mediapipe) HandLandmarker
 - Map data: the public [BeatSaver](https://beatsaver.com) / [BeatLeader](https://beatleader.xyz) APIs
 - A non-commercial fan project, unaffiliated with Beat Games / Meta; the "Beat Saber" trademark belongs to its owners
 

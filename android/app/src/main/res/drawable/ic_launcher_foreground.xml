@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 极简霓虹光剑图标 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- 蓝色剑刃 -->
+    <path
+        android:fillColor="#3D9BFF"
+        android:pathData="M30,78 L62,30 L70,35 L38,83 Z" />
+    <!-- 红色剑刃 -->
+    <path
+        android:fillColor="#FF5A5A"
+        android:pathData="M78,78 L46,30 L38,35 L70,83 Z" />
+    <!-- 中央方块音符示意 -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M50,50 h8 v8 h-8 Z" />
+</vector>

@@ -294,17 +294,6 @@ async function handleFile(file) {
   uploadBusy.value = false
 }
 
-const handPreviewRef = ref<HTMLDivElement | null>(null)
-
-async function onToggleHand() {
-  await game.toggleHandMode()
-  const box = handPreviewRef.value
-  if (!box) return
-  box.innerHTML = ''
-  const v = game.getHandVideo()
-  if (game.handMode.value && v) box.appendChild(v)
-}
-
 onMounted(() => {
   if (canvasRef.value) {
     game.init(canvasRef.value)
@@ -334,9 +323,6 @@ onUnmounted(() => {
 
 <template>
   <canvas ref="canvasRef" />
-
-  <!-- Webcam preview for hand-tracking mode (mirrored) -->
-  <div id="hand-preview" ref="handPreviewRef" :class="{ show: game.handMode.value }"></div>
 
   <!-- First-visit welcome -->
   <div v-if="showWelcome && game.state.value === 'menu'" class="welcome-mask">
@@ -573,15 +559,6 @@ onUnmounted(() => {
           {{ t('NO FAIL · 血量清空不失败但扣 50% 分数') }}
         </div>
         <div
-          id="auto-toggle"
-          :class="{ on: game.handMode.value }"
-          @click="game.uiClick(); onToggleHand()"
-          @mouseenter="game.uiHover()"
-        >
-          <span class="sw"></span>
-          {{ t('体感模式 · 摄像头食指控剑') }}{{ game.handStatus.value ? ' — ' + t(game.handStatus.value) : '' }}
-        </div>
-        <div
           class="settings-open-btn"
           @click="game.uiClick(); showSettings = true"
           @mouseenter="game.uiHover()"
@@ -625,7 +602,7 @@ onUnmounted(() => {
       <div class="upload-status" :style="{ color: uploadErr ? '#ff6677' : '#7b84ab' }">{{ t(uploadStatus) }}</div>
 
       <div id="controls-hint">
-        {{ t('桌面 — 自动演示 / 体感控剑 · ESC 暂停') }}<br />
+        {{ t('桌面 — 自动演示 · ESC 暂停') }}<br />
         {{ t('VR — 需 HTTPS · 左红右蓝 · 扳机选择 · 握把暂停') }}
       </div>
     </section>

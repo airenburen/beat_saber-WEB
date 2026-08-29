@@ -1,0 +1,47 @@
+name: Build Quest APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [VR-APP]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'android/**'
+      - 'scripts/sync-android-assets.mjs'
+      - '.github/workflows/build-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build web assets
+        run: npm ci && npm run build:apk
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build debug APK（可直接侧载）
+        working-directory: android
+        run: gradle assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: beat-saber-web-quest
+          path: android/app/build/outputs/apk/debug/*.apk
