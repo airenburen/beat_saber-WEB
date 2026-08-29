@@ -110,7 +110,7 @@ public class ServerService extends Service {
     public void onDestroy() {
         if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
         if (server != null) {
-            server.stop(NanoHttpdTimeout, true);
+            server.stop();
             server = null;
         }
         startedPort = 0;
